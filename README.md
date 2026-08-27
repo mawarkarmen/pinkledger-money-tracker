@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # PinkLedger Money Tracker
 
 PinkLedger is a full-stack personal money tracking starter application built with the requested stack:
@@ -307,3 +308,7 @@ npm start
 ## Important limitation
 
 The source code is complete as an application starter, but it cannot contain your private Supabase keys or SMTP credentials. You must provide those values in local or deployment environment variables before authentication, database access, and email delivery can function.
+=======
+# pinkledger-money-tracker
+A personal finance tracking application built with React, Express, Supabase, and Nodemailer.
+>>>>>>> 538143b78fad2fdeeba001921a70f59cdcef6137
