@@ -1,0 +1,573 @@
+/*
+ * PinkLedger modal and transaction form corrections.
+ */
+
+
+/* =========================================================
+   MODAL BACKDROP
+   ========================================================= */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+
+  z-index: 9999;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 100vw;
+  height: 100dvh;
+
+  padding: 24px;
+
+  overflow: hidden;
+
+  background: rgba(39, 39, 42, 0.42);
+
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+
+  animation: modalBackdropIn 160ms ease;
+}
+
+
+/* =========================================================
+   MODAL CARD
+   ========================================================= */
+
+.modal-card {
+  position: relative;
+
+  display: flex;
+  flex-direction: column;
+
+  width: min(540px, 100%);
+
+  height: auto;
+
+  max-height: calc(100dvh - 48px);
+
+  padding: 0;
+
+  overflow: hidden;
+
+  background: #ffffff;
+
+  border: 1px solid #f1d7e4;
+
+  border-radius: 24px;
+
+  box-shadow:
+    0 30px 90px
+      rgba(39, 39, 42, 0.26);
+
+  animation: modalCardIn 180ms ease;
+}
+
+
+.modal-card.modal-wide {
+  width: min(820px, 100%);
+}
+
+
+/* =========================================================
+   MODAL HEADER
+   ========================================================= */
+
+.modal-header {
+  position: relative;
+
+  z-index: 5;
+
+  flex: 0 0 auto;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 20px;
+
+  padding: 20px 28px;
+
+  margin: 0;
+
+  background: #ffffff;
+
+  border-bottom: 1px solid #f4dce7;
+}
+
+
+.modal-header > div {
+  min-width: 0;
+}
+
+
+.modal-header .eyebrow {
+  display: block;
+
+  margin-bottom: 4px;
+
+  color: #db2777;
+
+  font-size: 0.69rem;
+
+  font-weight: 800;
+
+  letter-spacing: 0.09em;
+
+  text-transform: uppercase;
+}
+
+
+.modal-header h2 {
+  margin: 0;
+
+  color: #27272a;
+
+  font-size: 1.25rem;
+
+  line-height: 1.25;
+}
+
+
+/* =========================================================
+   MODAL BODY
+   ========================================================= */
+
+.modal-body {
+  display: flex;
+  flex: 1 1 auto;
+
+  min-height: 0;
+
+  overflow: hidden;
+}
+
+
+/* =========================================================
+   TRANSACTION FORM CONTAINER
+   ========================================================= */
+
+.transaction-form {
+  display: flex;
+  flex-direction: column;
+
+  flex: 1 1 auto;
+
+  min-width: 0;
+  min-height: 0;
+
+  margin: 0;
+  padding: 0;
+
+  overflow: hidden;
+}
+
+
+/* =========================================================
+   SCROLLABLE TRANSACTION CONTENT
+   ========================================================= */
+
+.transaction-form-scroll {
+  display: flex;
+  flex-direction: column;
+
+  flex: 1 1 auto;
+
+  min-height: 0;
+
+  gap: 17px;
+
+  padding: 22px 28px 28px;
+
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  overscroll-behavior: contain;
+
+  scrollbar-width: thin;
+  scrollbar-color:
+    #f9a8d4
+    transparent;
+}
+
+
+.transaction-form-scroll::-webkit-scrollbar {
+  width: 7px;
+}
+
+
+.transaction-form-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+
+.transaction-form-scroll::-webkit-scrollbar-thumb {
+  background: #f9a8d4;
+
+  border-radius: 999px;
+}
+
+
+.transaction-form-scroll::-webkit-scrollbar-thumb:hover {
+  background: #ec4899;
+}
+
+
+/* =========================================================
+   TRANSACTION TYPE SELECTOR
+   ========================================================= */
+
+.transaction-type-control {
+  flex: 0 0 auto;
+
+  display: grid;
+
+  grid-template-columns:
+    repeat(3, minmax(0, 1fr));
+
+  gap: 5px;
+
+  margin: 0;
+
+  padding: 5px;
+
+  border: 1px solid #f4d8e6;
+
+  border-radius: 15px;
+
+  background: #fdf2f8;
+}
+
+
+.transaction-type-control button {
+  min-height: 44px;
+
+  padding: 9px 12px;
+
+  border: 0;
+
+  border-radius: 11px;
+
+  color: #71717a;
+
+  background: transparent;
+
+  font: inherit;
+  font-weight: 750;
+
+  cursor: pointer;
+
+  transition:
+    background 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+
+.transaction-type-control button:hover {
+  color: #db2777;
+}
+
+
+.transaction-type-control button.active {
+  color: #db2777;
+
+  background: #ffffff;
+
+  box-shadow:
+    0 5px 16px
+      rgba(122, 55, 91, 0.1);
+}
+
+
+/* =========================================================
+   TRANSACTION FORM GRID
+   ========================================================= */
+
+.transaction-form
+.form-grid.two {
+  display: grid;
+
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
+
+  gap: 16px;
+}
+
+
+.transaction-form label {
+  display: block;
+
+  min-width: 0;
+}
+
+
+.transaction-form label > span {
+  display: block;
+
+  margin-bottom: 7px;
+
+  color: #3f3f46;
+
+  font-weight: 700;
+}
+
+
+.transaction-form label small {
+  color: #71717a;
+
+  font-size: 0.76rem;
+
+  font-weight: 400;
+}
+
+
+/* =========================================================
+   INPUTS
+   ========================================================= */
+
+.transaction-form input,
+.transaction-form select,
+.transaction-form textarea {
+  width: 100%;
+
+  box-sizing: border-box;
+}
+
+
+.transaction-form input,
+.transaction-form select {
+  min-height: 50px;
+
+  padding-left: 15px;
+  padding-right: 15px;
+}
+
+
+.transaction-form textarea {
+  min-height: 105px;
+
+  padding: 14px 15px;
+
+  resize: vertical;
+}
+
+
+/* =========================================================
+   FIXED FORM FOOTER
+   ========================================================= */
+
+.transaction-form-footer {
+  position: relative;
+
+  z-index: 10;
+
+  flex: 0 0 auto;
+
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+
+  gap: 12px;
+
+  padding: 16px 28px 20px;
+
+  background: #ffffff;
+
+  border-top: 1px solid #f4dce7;
+
+  box-shadow:
+    0 -10px 25px
+      rgba(39, 39, 42, 0.035);
+}
+
+
+.transaction-form-footer .button {
+  min-width: 140px;
+}
+
+
+.transaction-form-footer
+.button.primary {
+  min-width: 175px;
+}
+
+
+/* =========================================================
+   ANIMATIONS
+   ========================================================= */
+
+@keyframes modalBackdropIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+
+@keyframes modalCardIn {
+  from {
+    opacity: 0;
+
+    transform:
+      translateY(10px)
+      scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+
+    transform:
+      translateY(0)
+      scale(1);
+  }
+}
+
+
+/* =========================================================
+   SMALL LAPTOP / TABLET
+   ========================================================= */
+
+@media (max-height: 760px) {
+  .modal-backdrop {
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+
+  .modal-card {
+    max-height:
+      calc(100dvh - 28px);
+  }
+
+  .modal-header {
+    padding:
+      16px 24px;
+  }
+
+  .transaction-form-scroll {
+    padding:
+      18px 24px 22px;
+
+    gap: 14px;
+  }
+
+  .transaction-form-footer {
+    padding:
+      13px 24px 16px;
+  }
+
+  .transaction-form input,
+  .transaction-form select {
+    min-height: 46px;
+  }
+
+  .transaction-form textarea {
+    min-height: 85px;
+  }
+}
+
+
+/* =========================================================
+   TABLET
+   ========================================================= */
+
+@media (max-width: 760px) {
+  .modal-backdrop {
+    padding: 14px;
+  }
+
+  .modal-card,
+  .modal-card.modal-wide {
+    width: 100%;
+
+    max-height:
+      calc(100dvh - 28px);
+  }
+
+  .transaction-form
+  .form-grid.two {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 520px) {
+  .modal-backdrop {
+    align-items: stretch;
+
+    padding: 0;
+  }
+
+  .modal-card,
+  .modal-card.modal-wide {
+    width: 100%;
+
+    height: 100dvh;
+
+    max-height: 100dvh;
+
+    border: 0;
+
+    border-radius: 0;
+  }
+
+  .modal-header {
+    padding:
+      16px 18px;
+  }
+
+  .transaction-form-scroll {
+    padding:
+      18px 18px 22px;
+  }
+
+  .transaction-form-footer {
+    display: grid;
+
+    grid-template-columns:
+      1fr 1fr;
+
+    gap: 10px;
+
+    padding:
+      14px 18px
+      calc(
+        16px +
+        env(safe-area-inset-bottom)
+      );
+  }
+
+  .transaction-form-footer
+  .button,
+  .transaction-form-footer
+  .button.primary {
+    width: 100%;
+
+    min-width: 0;
+  }
+}
+
+
+/* =========================================================
+   REDUCED MOTION
+   ========================================================= */
+
+@media (
+  prefers-reduced-motion:
+    reduce
+) {
+  .modal-backdrop,
+  .modal-card {
+    animation: none;
+  }
+}
