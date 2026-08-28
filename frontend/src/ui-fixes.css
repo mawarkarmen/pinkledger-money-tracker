@@ -1,5 +1,10 @@
 /*
- * PinkLedger modal and transaction form corrections.
+ * PinkLedger modal corrections
+ *
+ * Supports:
+ * 1. Generic forms such as budgets,
+ *    accounts and categories.
+ * 2. The specialized transaction form.
  */
 
 
@@ -24,12 +29,19 @@
 
   overflow: hidden;
 
-  background: rgba(39, 39, 42, 0.42);
+  background:
+    rgba(39, 39, 42, 0.42);
 
-  backdrop-filter: blur(5px);
-  -webkit-backdrop-filter: blur(5px);
+  backdrop-filter:
+    blur(5px);
 
-  animation: modalBackdropIn 160ms ease;
+  -webkit-backdrop-filter:
+    blur(5px);
+
+  animation:
+    modalBackdropIn
+    160ms
+    ease;
 }
 
 
@@ -43,32 +55,49 @@
   display: flex;
   flex-direction: column;
 
-  width: min(540px, 100%);
+  width: min(
+    520px,
+    100%
+  );
 
-  height: auto;
+  max-height:
+    calc(
+      100dvh - 48px
+    );
 
-  max-height: calc(100dvh - 48px);
-
+  margin: 0;
   padding: 0;
 
   overflow: hidden;
 
   background: #ffffff;
 
-  border: 1px solid #f1d7e4;
+  border:
+    1px solid #f1d7e4;
 
-  border-radius: 24px;
+  border-radius: 22px;
 
   box-shadow:
     0 30px 90px
-      rgba(39, 39, 42, 0.26);
+    rgba(
+      39,
+      39,
+      42,
+      0.26
+    );
 
-  animation: modalCardIn 180ms ease;
+  animation:
+    modalCardIn
+    180ms
+    ease;
 }
 
 
 .modal-card.modal-wide {
-  width: min(820px, 100%);
+  width: min(
+    820px,
+    100%
+  );
 }
 
 
@@ -79,45 +108,52 @@
 .modal-header {
   position: relative;
 
-  z-index: 5;
+  z-index: 10;
 
   flex: 0 0 auto;
 
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content:
+    space-between;
 
   gap: 20px;
 
-  padding: 20px 28px;
+  width: 100%;
 
   margin: 0;
 
+  padding:
+    20px 26px;
+
   background: #ffffff;
 
-  border-bottom: 1px solid #f4dce7;
+  border-bottom:
+    1px solid #f4dce7;
 }
 
 
-.modal-header > div {
+.modal-title-group {
   min-width: 0;
 }
 
 
-.modal-header .eyebrow {
+.modal-title-group .eyebrow {
   display: block;
 
   margin-bottom: 4px;
 
   color: #db2777;
 
-  font-size: 0.69rem;
+  font-size: 0.7rem;
 
   font-weight: 800;
 
-  letter-spacing: 0.09em;
+  letter-spacing:
+    0.09em;
 
-  text-transform: uppercase;
+  text-transform:
+    uppercase;
 }
 
 
@@ -132,22 +168,159 @@
 }
 
 
+.modal-header
+.icon-button {
+  flex: 0 0 auto;
+}
+
+
 /* =========================================================
    MODAL BODY
    ========================================================= */
 
 .modal-body {
   display: flex;
+
   flex: 1 1 auto;
 
+  width: 100%;
+
+  min-width: 0;
   min-height: 0;
 
   overflow: hidden;
 }
 
 
+/*
+ * This is important.
+ *
+ * Every child of the modal body should
+ * occupy the full available width.
+ */
+.modal-body > * {
+  width: 100%;
+  min-width: 0;
+}
+
+
 /* =========================================================
-   TRANSACTION FORM CONTAINER
+   GENERIC MODAL FORM
+   Budgets / Accounts / Categories / etc.
+   ========================================================= */
+
+.modal-standard-form {
+  width: 100%;
+
+  max-height:
+    calc(
+      100dvh - 150px
+    );
+
+  padding:
+    22px 26px 24px;
+
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  box-sizing:
+    border-box;
+
+  scrollbar-width:
+    thin;
+
+  scrollbar-color:
+    #f9a8d4
+    transparent;
+}
+
+
+.modal-standard-form::-webkit-scrollbar {
+  width: 7px;
+}
+
+
+.modal-standard-form::-webkit-scrollbar-track {
+  background:
+    transparent;
+}
+
+
+.modal-standard-form::-webkit-scrollbar-thumb {
+  background:
+    #f9a8d4;
+
+  border-radius:
+    999px;
+}
+
+
+.modal-standard-form label {
+  width: 100%;
+}
+
+
+.modal-standard-form input,
+.modal-standard-form select,
+.modal-standard-form textarea {
+  width: 100%;
+
+  box-sizing:
+    border-box;
+}
+
+
+.modal-standard-form input,
+.modal-standard-form select {
+  min-height: 48px;
+}
+
+
+.modal-standard-form textarea {
+  min-height: 95px;
+
+  resize: vertical;
+}
+
+
+/* =========================================================
+   GENERIC MODAL ACTIONS
+   ========================================================= */
+
+.modal-standard-actions {
+  display: flex;
+
+  align-items: center;
+  justify-content:
+    flex-end;
+
+  gap: 10px;
+
+  width: 100%;
+
+  margin-top: 4px;
+
+  padding-top: 16px;
+
+  border-top:
+    1px solid #f4dce7;
+}
+
+
+.modal-standard-actions
+.button {
+  min-width: 120px;
+}
+
+
+.modal-standard-actions
+.button.primary {
+  min-width: 145px;
+}
+
+
+/* =========================================================
+   TRANSACTION FORM
    ========================================================= */
 
 .transaction-form {
@@ -155,6 +328,8 @@
   flex-direction: column;
 
   flex: 1 1 auto;
+
+  width: 100%;
 
   min-width: 0;
   min-height: 0;
@@ -180,14 +355,18 @@
 
   gap: 17px;
 
-  padding: 22px 28px 28px;
+  padding:
+    22px 28px 28px;
 
   overflow-y: auto;
   overflow-x: hidden;
 
-  overscroll-behavior: contain;
+  overscroll-behavior:
+    contain;
 
-  scrollbar-width: thin;
+  scrollbar-width:
+    thin;
+
   scrollbar-color:
     #f9a8d4
     transparent;
@@ -207,7 +386,8 @@
 .transaction-form-scroll::-webkit-scrollbar-thumb {
   background: #f9a8d4;
 
-  border-radius: 999px;
+  border-radius:
+    999px;
 }
 
 
@@ -217,7 +397,7 @@
 
 
 /* =========================================================
-   TRANSACTION TYPE SELECTOR
+   TRANSACTION TYPE
    ========================================================= */
 
 .transaction-type-control {
@@ -226,7 +406,10 @@
   display: grid;
 
   grid-template-columns:
-    repeat(3, minmax(0, 1fr));
+    repeat(
+      3,
+      minmax(0, 1fr)
+    );
 
   gap: 5px;
 
@@ -234,7 +417,8 @@
 
   padding: 5px;
 
-  border: 1px solid #f4d8e6;
+  border:
+    1px solid #f4d8e6;
 
   border-radius: 15px;
 
@@ -245,7 +429,8 @@
 .transaction-type-control button {
   min-height: 44px;
 
-  padding: 9px 12px;
+  padding:
+    9px 12px;
 
   border: 0;
 
@@ -253,9 +438,11 @@
 
   color: #71717a;
 
-  background: transparent;
+  background:
+    transparent;
 
   font: inherit;
+
   font-weight: 750;
 
   cursor: pointer;
@@ -279,7 +466,12 @@
 
   box-shadow:
     0 5px 16px
-      rgba(122, 55, 91, 0.1);
+    rgba(
+      122,
+      55,
+      91,
+      0.1
+    );
 }
 
 
@@ -292,7 +484,10 @@
   display: grid;
 
   grid-template-columns:
-    repeat(2, minmax(0, 1fr));
+    repeat(
+      2,
+      minmax(0, 1fr)
+    );
 
   gap: 16px;
 }
@@ -305,7 +500,8 @@
 }
 
 
-.transaction-form label > span {
+.transaction-form
+label > span {
   display: block;
 
   margin-bottom: 7px;
@@ -316,25 +512,24 @@
 }
 
 
-.transaction-form label small {
+.transaction-form
+label small {
   color: #71717a;
 
-  font-size: 0.76rem;
+  font-size:
+    0.76rem;
 
   font-weight: 400;
 }
 
-
-/* =========================================================
-   INPUTS
-   ========================================================= */
 
 .transaction-form input,
 .transaction-form select,
 .transaction-form textarea {
   width: 100%;
 
-  box-sizing: border-box;
+  box-sizing:
+    border-box;
 }
 
 
@@ -350,14 +545,15 @@
 .transaction-form textarea {
   min-height: 105px;
 
-  padding: 14px 15px;
+  padding:
+    14px 15px;
 
   resize: vertical;
 }
 
 
 /* =========================================================
-   FIXED FORM FOOTER
+   TRANSACTION FOOTER
    ========================================================= */
 
 .transaction-form-footer {
@@ -368,24 +564,39 @@
   flex: 0 0 auto;
 
   display: flex;
+
   align-items: center;
-  justify-content: flex-end;
+  justify-content:
+    flex-end;
 
   gap: 12px;
 
-  padding: 16px 28px 20px;
+  width: 100%;
+
+  padding:
+    16px 28px 20px;
 
   background: #ffffff;
 
-  border-top: 1px solid #f4dce7;
+  border-top:
+    1px solid #f4dce7;
 
   box-shadow:
     0 -10px 25px
-      rgba(39, 39, 42, 0.035);
+    rgba(
+      39,
+      39,
+      42,
+      0.035
+    );
+
+  box-sizing:
+    border-box;
 }
 
 
-.transaction-form-footer .button {
+.transaction-form-footer
+.button {
   min-width: 140px;
 }
 
@@ -397,7 +608,7 @@
 
 
 /* =========================================================
-   ANIMATIONS
+   ANIMATION
    ========================================================= */
 
 @keyframes modalBackdropIn {
@@ -431,23 +642,32 @@
 
 
 /* =========================================================
-   SMALL LAPTOP / TABLET
+   LOW-HEIGHT DISPLAYS
    ========================================================= */
 
-@media (max-height: 760px) {
+@media (
+  max-height: 760px
+) {
   .modal-backdrop {
-    padding-top: 14px;
-    padding-bottom: 14px;
+    padding:
+      14px 20px;
   }
 
   .modal-card {
     max-height:
-      calc(100dvh - 28px);
+      calc(
+        100dvh - 28px
+      );
   }
 
   .modal-header {
     padding:
       16px 24px;
+  }
+
+  .modal-standard-form {
+    padding:
+      18px 24px 20px;
   }
 
   .transaction-form-scroll {
@@ -461,15 +681,6 @@
     padding:
       13px 24px 16px;
   }
-
-  .transaction-form input,
-  .transaction-form select {
-    min-height: 46px;
-  }
-
-  .transaction-form textarea {
-    min-height: 85px;
-  }
 }
 
 
@@ -477,7 +688,9 @@
    TABLET
    ========================================================= */
 
-@media (max-width: 760px) {
+@media (
+  max-width: 760px
+) {
   .modal-backdrop {
     padding: 14px;
   }
@@ -487,12 +700,15 @@
     width: 100%;
 
     max-height:
-      calc(100dvh - 28px);
+      calc(
+        100dvh - 28px
+      );
   }
 
   .transaction-form
   .form-grid.two {
-    grid-template-columns: 1fr;
+    grid-template-columns:
+      1fr;
   }
 }
 
@@ -501,9 +717,12 @@
    MOBILE
    ========================================================= */
 
-@media (max-width: 520px) {
+@media (
+  max-width: 520px
+) {
   .modal-backdrop {
-    align-items: stretch;
+    align-items:
+      stretch;
 
     padding: 0;
   }
@@ -526,6 +745,25 @@
       16px 18px;
   }
 
+  .modal-standard-form {
+    padding:
+      18px;
+  }
+
+  .modal-standard-actions {
+    display: grid;
+
+    grid-template-columns:
+      1fr 1fr;
+  }
+
+  .modal-standard-actions
+  .button {
+    width: 100%;
+
+    min-width: 0;
+  }
+
   .transaction-form-scroll {
     padding:
       18px 18px 22px;
@@ -543,7 +781,9 @@
       14px 18px
       calc(
         16px +
-        env(safe-area-inset-bottom)
+        env(
+          safe-area-inset-bottom
+        )
       );
   }
 

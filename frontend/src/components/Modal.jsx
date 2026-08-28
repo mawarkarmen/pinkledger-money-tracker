@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 export default function Modal({
   open,
   title,
+  eyebrow,
   onClose,
   children,
   wide = false,
@@ -23,10 +24,6 @@ export default function Modal({
     const previousOverflow =
       document.body.style.overflow;
 
-    /*
-     * Prevent the page behind the modal
-     * from scrolling while the modal is open.
-     */
     document.body.style.overflow = 'hidden';
 
     window.addEventListener(
@@ -67,10 +64,12 @@ export default function Modal({
         aria-labelledby="modal-title"
       >
         <div className="modal-header">
-          <div>
-            <span className="eyebrow">
-              Transaction
-            </span>
+          <div className="modal-title-group">
+            {eyebrow ? (
+              <span className="eyebrow">
+                {eyebrow}
+              </span>
+            ) : null}
 
             <h2 id="modal-title">
               {title}
