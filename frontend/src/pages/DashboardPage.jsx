@@ -22,7 +22,6 @@ import {
 } from '../lib/format';
 
 import StatCard from '../components/StatCard';
-
 import EmptyState from '../components/EmptyState';
 
 
@@ -30,73 +29,71 @@ export default function DashboardPage() {
   const [
     month,
     setMonth,
-  ] =
-    useState(
-      currentMonth(),
-    );
+  ] = useState(
+    currentMonth(),
+  );
 
   const [
     data,
     setData,
-  ] =
-    useState(null);
+  ] = useState(null);
 
   const [
     currency,
     setCurrency,
-  ] =
-    useState('IDR');
+  ] = useState('IDR');
 
   const [
     loading,
     setLoading,
-  ] =
-    useState(true);
+  ] = useState(true);
 
   const [
     error,
     setError,
-  ] =
-    useState('');
+  ] = useState('');
 
 
   async function load() {
     setLoading(true);
-
     setError('');
 
     try {
       const [
         dashboard,
         profile,
-      ] =
-        await Promise.all([
-          api(
-            `/dashboard?month=${month}`,
-          ),
+      ] = await Promise.all([
+        api(
+          `/dashboard?month=${month}`,
+        ),
 
-          api(
-            '/profile',
-          ),
-        ]);
+        api('/profile'),
+      ]);
 
-
+      /*
+       * Do not assume every property
+       * always exists in the API response.
+       */
       setData(
-        dashboard,
+        dashboard || {},
       );
 
       setCurrency(
-        profile.currency ||
+        profile?.currency ||
           'IDR',
       );
     } catch (err) {
+      console.error(
+        'Dashboard load error:',
+        err,
+      );
+
       setError(
-        err.message,
+        err.message ||
+          'Unable to load the dashboard.',
       );
     } finally {
-      setLoading(
-        false,
-      );
+      setLoading(false);
     }
   }
 
@@ -106,25 +103,84 @@ export default function DashboardPage() {
   }, [month]);
 
 
+  /*
+   * ----------------------------------------------------------
+   * SAFE API NORMALIZATION
+   * ----------------------------------------------------------
+   *
+   * These defaults prevent the Dashboard from crashing if
+   * an older backend or incomplete API response is returned.
+   */
+
+  const budgetStatus = {
+    total:
+      Number(
+        data
+          ?.budget_status
+          ?.total ??
+          0,
+      ),
+
+    spent:
+      Number(
+        data
+          ?.budget_status
+          ?.spent ??
+          0,
+      ),
+
+    remaining:
+      Number(
+        data
+          ?.budget_status
+          ?.remaining ??
+          0,
+      ),
+
+    percentage:
+      Number(
+        data
+          ?.budget_status
+          ?.percentage ??
+          0,
+      ),
+  };
+
+
+  const categorySpending =
+    Array.isArray(
+      data
+        ?.category_spending,
+    )
+      ? data.category_spending
+      : [];
+
+
+  const recentTransactions =
+    Array.isArray(
+      data
+        ?.recent_transactions,
+    )
+      ? data.recent_transactions
+      : [];
+
+
   const maxSpend =
     useMemo(
       () =>
         Math.max(
           1,
 
-          ...(
-            data
-              ?.category_spending ||
-            []
-          ).map(
+          ...categorySpending.map(
             (item) =>
               Number(
-                item.amount,
+                item.amount ||
+                  0,
               ),
           ),
         ),
 
-      [data],
+      [categorySpending],
     );
 
 
@@ -149,25 +205,72 @@ export default function DashboardPage() {
 
 
   if (!data) {
-    return null;
+    return (
+      <div className="alert error">
+        Dashboard data is unavailable.
+      </div>
+    );
   }
 
 
   const budgetPercentage =
     Math.max(
       0,
-
-      Number(
-        data
-          .budget_status
-          .percentage ||
-          0,
-      ),
+      budgetStatus.percentage,
     );
+
+
+  const openingBalance =
+    Number(
+      data.opening_balance ??
+        0,
+    );
+
+
+  const currentBalance =
+    Number(
+      data.current_balance ??
+        0,
+    );
+
+
+  const totalIncome =
+    Number(
+      data.total_income ??
+        0,
+    );
+
+
+  const totalExpenses =
+    Number(
+      data.total_expenses ??
+        0,
+    );
+
+
+  const netCashFlow =
+    Number(
+      data.net_cash_flow ??
+        0,
+    );
+
+
+  const outstandingReimbursements =
+    Number(
+      data
+        .outstanding_reimbursements ??
+        0,
+    );
+
+
+  const balanceLabel =
+    data.balance_label ||
+    'Current Balance';
 
 
   return (
     <div className="page-stack animate-in">
+
       <div className="page-toolbar">
         <div>
           <h2>
@@ -191,12 +294,8 @@ export default function DashboardPage() {
 
           <input
             type="month"
-            value={
-              month
-            }
-            onChange={(
-              event,
-            ) =>
+            value={month}
+            onChange={(event) =>
               setMonth(
                 event
                   .target
@@ -209,36 +308,28 @@ export default function DashboardPage() {
 
 
       <section className="stats-grid">
+
         <StatCard
           label="Opening Balance"
           value={
             formatMoney(
-              data
-                .opening_balance,
+              openingBalance,
               currency,
             )
           }
-          icon={
-            Landmark
-          }
+          icon={Landmark}
         />
 
 
         <StatCard
-          label={
-            data
-              .balance_label
-          }
+          label={balanceLabel}
           value={
             formatMoney(
-              data
-                .current_balance,
+              currentBalance,
               currency,
             )
           }
-          icon={
-            PiggyBank
-          }
+          icon={PiggyBank}
           tone="blue"
         />
 
@@ -247,14 +338,11 @@ export default function DashboardPage() {
           label="Total Income"
           value={
             formatMoney(
-              data
-                .total_income,
+              totalIncome,
               currency,
             )
           }
-          icon={
-            ArrowUpRight
-          }
+          icon={ArrowUpRight}
           tone="green"
         />
 
@@ -263,14 +351,11 @@ export default function DashboardPage() {
           label="Total Expenses"
           value={
             formatMoney(
-              data
-                .total_expenses,
+              totalExpenses,
               currency,
             )
           }
-          icon={
-            ArrowDownRight
-          }
+          icon={ArrowDownRight}
           tone="red"
         />
 
@@ -279,18 +364,13 @@ export default function DashboardPage() {
           label="Net Cash Flow"
           value={
             formatMoney(
-              data
-                .net_cash_flow,
+              netCashFlow,
               currency,
             )
           }
-          icon={
-            TrendingUp
-          }
+          icon={TrendingUp}
           tone={
-            data
-              .net_cash_flow >=
-            0
+            netCashFlow >= 0
               ? 'green'
               : 'red'
           }
@@ -301,22 +381,21 @@ export default function DashboardPage() {
           label="Outstanding Reimbursements"
           value={
             formatMoney(
-              data
-                .outstanding_reimbursements ||
-                0,
+              outstandingReimbursements,
               currency,
             )
           }
-          icon={
-            HandCoins
-          }
+          icon={HandCoins}
           tone="blue"
         />
+
       </section>
 
 
       <section className="dashboard-grid">
+
         <article className="panel budget-panel">
+
           <div className="panel-heading">
             <div>
               <span className="eyebrow">
@@ -337,11 +416,7 @@ export default function DashboardPage() {
           </div>
 
 
-          {Number(
-            data
-              .budget_status
-              .total,
-          ) > 0 ? (
+          {budgetStatus.total > 0 ? (
             <>
               <div className="big-progress">
                 <span
@@ -349,7 +424,6 @@ export default function DashboardPage() {
                     width:
                       `${Math.min(
                         100,
-
                         budgetPercentage,
                       )}%`,
                   }}
@@ -358,6 +432,7 @@ export default function DashboardPage() {
 
 
               <div className="budget-numbers">
+
                 <div>
                   <span>
                     Spent
@@ -365,9 +440,7 @@ export default function DashboardPage() {
 
                   <strong>
                     {formatMoney(
-                      data
-                        .budget_status
-                        .spent,
+                      budgetStatus.spent,
                       currency,
                     )}
                   </strong>
@@ -381,9 +454,7 @@ export default function DashboardPage() {
 
                   <strong>
                     {formatMoney(
-                      data
-                        .budget_status
-                        .total,
+                      budgetStatus.total,
                       currency,
                     )}
                   </strong>
@@ -397,13 +468,12 @@ export default function DashboardPage() {
 
                   <strong>
                     {formatMoney(
-                      data
-                        .budget_status
-                        .remaining,
+                      budgetStatus.remaining,
                       currency,
                     )}
                   </strong>
                 </div>
+
               </div>
 
 
@@ -417,10 +487,12 @@ export default function DashboardPage() {
               description="Set category budgets to measure spending against a monthly plan."
             />
           )}
+
         </article>
 
 
         <article className="panel">
+
           <div className="panel-heading">
             <div>
               <span className="eyebrow">
@@ -434,12 +506,10 @@ export default function DashboardPage() {
           </div>
 
 
-          {data
-            .category_spending
-            .length ? (
+          {categorySpending.length ? (
             <div className="bar-list">
-              {data
-                .category_spending
+
+              {categorySpending
                 .slice(
                   0,
                   6,
@@ -452,6 +522,7 @@ export default function DashboardPage() {
                         item.name
                       }
                     >
+
                       <div className="bar-label">
                         <span>
                           {
@@ -461,7 +532,10 @@ export default function DashboardPage() {
 
                         <strong>
                           {formatMoney(
-                            item.amount,
+                            Number(
+                              item.amount ||
+                                0,
+                            ),
                             currency,
                           )}
                         </strong>
@@ -474,16 +548,19 @@ export default function DashboardPage() {
                             width:
                               `${(
                                 Number(
-                                  item.amount,
+                                  item.amount ||
+                                    0,
                                 ) /
                                 maxSpend
                               ) * 100}%`,
                           }}
                         />
                       </div>
+
                     </div>
                   ),
                 )}
+
             </div>
           ) : (
             <EmptyState
@@ -491,11 +568,14 @@ export default function DashboardPage() {
               description="Personal expense categories will appear here after transactions are recorded."
             />
           )}
+
         </article>
+
       </section>
 
 
       <section className="panel">
+
         <div className="panel-heading">
           <div>
             <span className="eyebrow">
@@ -509,95 +589,96 @@ export default function DashboardPage() {
         </div>
 
 
-        {data
-          .recent_transactions
-          .length ? (
+        {recentTransactions.length ? (
           <div className="transaction-list compact-list">
-            {data
-              .recent_transactions
-              .map(
-                (tx) => {
-                  const isReceipt =
-                    Boolean(
-                      tx
-                        .reimburses_transaction_id,
-                    );
 
-                  let detail =
-                    tx.category
-                      ?.name ||
-                    'Transfer';
-
-
-                  if (
-                    isReceipt
-                  ) {
-                    detail =
-                      'Reimbursement';
-                  } else if (
+            {recentTransactions.map(
+              (tx) => {
+                const isReceipt =
+                  Boolean(
                     tx
-                      .is_reimbursable
-                  ) {
-                    detail =
-                      `${detail} · ${
-                        tx
-                          .reimbursement_status ===
-                        'reimbursed'
-                          ? 'Reimbursed'
-                          : 'Awaiting reimbursement'
-                      }`;
-                  }
-
-
-                  return (
-                    <div
-                      className="transaction-row"
-                      key={
-                        tx.id
-                      }
-                    >
-                      <div
-                        className={`transaction-dot ${tx.type}`}
-                      />
-
-
-                      <div className="transaction-main">
-                        <strong>
-                          {
-                            tx.description
-                          }
-                        </strong>
-
-                        <span>
-                          {formatDate(
-                            tx.date,
-                          )}
-                          {' · '}
-                          {detail}
-                        </span>
-                      </div>
-
-
-                      <strong
-                        className={`money-value ${tx.type}`}
-                      >
-                        {tx.type ===
-                        'expense'
-                          ? '-'
-                          : tx.type ===
-                              'income'
-                            ? '+'
-                            : ''}
-
-                        {formatMoney(
-                          tx.amount,
-                          currency,
-                        )}
-                      </strong>
-                    </div>
+                      .reimburses_transaction_id,
                   );
-                },
-              )}
+
+
+                let detail =
+                  tx.category
+                    ?.name ||
+                  'Transfer';
+
+
+                if (isReceipt) {
+                  detail =
+                    'Reimbursement';
+                } else if (
+                  tx.is_reimbursable
+                ) {
+                  detail =
+                    `${detail} · ${
+                      tx
+                        .reimbursement_status ===
+                      'reimbursed'
+                        ? 'Reimbursed'
+                        : 'Awaiting reimbursement'
+                    }`;
+                }
+
+
+                return (
+                  <div
+                    className="transaction-row"
+                    key={tx.id}
+                  >
+
+                    <div
+                      className={`transaction-dot ${tx.type}`}
+                    />
+
+
+                    <div className="transaction-main">
+                      <strong>
+                        {
+                          tx.description
+                        }
+                      </strong>
+
+                      <span>
+                        {formatDate(
+                          tx.date,
+                        )}
+
+                        {' · '}
+
+                        {detail}
+                      </span>
+                    </div>
+
+
+                    <strong
+                      className={`money-value ${tx.type}`}
+                    >
+                      {tx.type ===
+                      'expense'
+                        ? '-'
+                        : tx.type ===
+                            'income'
+                          ? '+'
+                          : ''}
+
+                      {formatMoney(
+                        Number(
+                          tx.amount ||
+                            0,
+                        ),
+                        currency,
+                      )}
+                    </strong>
+
+                  </div>
+                );
+              },
+            )}
+
           </div>
         ) : (
           <EmptyState
@@ -605,7 +686,9 @@ export default function DashboardPage() {
             description="Add your first transaction to start building the monthly summary."
           />
         )}
+
       </section>
+
     </div>
   );
 }

@@ -1,16 +1,14 @@
 import { Router } from 'express';
 
 import {
-  budgetSchema,
-} from '../utils/validation.js';
-
-import {
   parseMonth,
 } from '../utils/dates.js';
 
 import {
   asNumber,
+  transactionTotalEffect,
 } from '../utils/money.js';
+
 
 const router = Router();
 
@@ -29,234 +27,512 @@ router.get(
           .toISOString()
           .slice(0, 7);
 
+
       const {
         start,
-        next: nextMonth,
+        next:
+          nextMonth,
+        end,
       } =
-        parseMonth(month);
+        parseMonth(
+          month,
+        );
+
+
+      const today =
+        new Date()
+          .toISOString()
+          .slice(0, 10);
+
+
+      const currentMonth =
+        today.slice(
+          0,
+          7,
+        );
+
+
+      const balanceThrough =
+        month ===
+        currentMonth
+          ? today
+          : end;
+
+
+      const [
+        accountResult,
+        transactionResult,
+        claimResult,
+      ] =
+        await Promise.all([
+
+          req.supabase
+            .from(
+              'accounts',
+            )
+            .select(`
+              opening_balance,
+              opening_date
+            `),
+
+          req.supabase
+            .from(
+              'transactions',
+            )
+            .select(`
+              id,
+              type,
+              date,
+              description,
+              amount,
+              category_id,
+              source_account_id,
+              destination_account_id,
+              created_at,
+              is_reimbursable,
+              reimbursement_status,
+              reimbursed_at,
+              reimbursement_claim_id,
+              transaction_group_id,
+              category:categories(
+                name,
+                icon
+              )
+            `)
+            .lte(
+              'date',
+              balanceThrough,
+            )
+            .order(
+              'date',
+              {
+                ascending:
+                  false,
+              },
+            )
+            .order(
+              'created_at',
+              {
+                ascending:
+                  false,
+              },
+            ),
+
+          req.supabase
+            .from(
+              'reimbursement_claims',
+            )
+            .select(`
+              id,
+              transaction_id,
+              person_name,
+              amount,
+              status,
+              reimbursed_at
+            `),
+        ]);
+
+
+      if (
+        accountResult.error
+      ) {
+        throw accountResult.error;
+      }
+
+
+      if (
+        transactionResult.error
+      ) {
+        throw transactionResult.error;
+      }
+
+
+      if (
+        claimResult.error
+      ) {
+        throw claimResult.error;
+      }
+
+
+      const accounts =
+        accountResult.data ||
+        [];
+
+
+      const transactions =
+        transactionResult.data ||
+        [];
+
+
+      const claims =
+        claimResult.data ||
+        [];
+
+
+      const transactionMap =
+        new Map(
+          transactions.map(
+            (transaction) => [
+              transaction.id,
+              transaction,
+            ],
+          ),
+        );
+
+
+      const openingBalanceBase =
+        accounts.reduce(
+          (
+            sum,
+            account,
+          ) =>
+            sum +
+            (
+              account.opening_date <=
+              start
+                ? asNumber(
+                    account
+                      .opening_balance,
+                  )
+                : 0
+            ),
+
+          0,
+        );
+
+
+      const currentBalanceBase =
+        accounts.reduce(
+          (
+            sum,
+            account,
+          ) =>
+            sum +
+            (
+              account.opening_date <=
+              balanceThrough
+                ? asNumber(
+                    account
+                      .opening_balance,
+                  )
+                : 0
+            ),
+
+          0,
+        );
+
+
+      let openingBalance =
+        openingBalanceBase;
+
+
+      let currentBalance =
+        currentBalanceBase;
+
+
+      let totalIncome =
+        0;
+
+
+      let totalExpenses =
+        0;
+
+
+      let outstandingReimbursements =
+        0;
+
+
+      const categorySpend =
+        new Map();
+
+
+      const categorySpendById =
+        new Map();
+
+
+      for (
+        const transaction of
+        transactions
+      ) {
+        const effect =
+          transactionTotalEffect(
+            transaction,
+          );
+
+
+        currentBalance +=
+          effect;
+
+
+        if (
+          transaction.date <
+          start
+        ) {
+          openingBalance +=
+            effect;
+        } else if (
+          transaction.date <
+          nextMonth
+        ) {
+
+          if (
+            transaction.type ===
+              'income' &&
+            !transaction
+              .reimbursement_claim_id
+          ) {
+            totalIncome +=
+              asNumber(
+                transaction.amount,
+              );
+          }
+
+
+          if (
+            transaction.type ===
+              'expense' &&
+            !transaction
+              .is_reimbursable
+          ) {
+            const amount =
+              asNumber(
+                transaction.amount,
+              );
+
+
+            totalExpenses +=
+              amount;
+
+
+            const name =
+              transaction.category
+                ?.name ||
+              'Uncategorized';
+
+
+            categorySpend.set(
+              name,
+
+              (
+                categorySpend.get(
+                  name,
+                ) || 0
+              ) + amount,
+            );
+
+
+            if (
+              transaction
+                .category_id
+            ) {
+              categorySpendById.set(
+                transaction
+                  .category_id,
+
+                (
+                  categorySpendById.get(
+                    transaction
+                      .category_id,
+                  ) || 0
+                ) + amount,
+              );
+            }
+          }
+        }
+      }
+
+
+      /*
+       * Outstanding reimbursement is now
+       * calculated per person.
+       */
+
+      for (
+        const claim of
+        claims
+      ) {
+        const original =
+          transactionMap.get(
+            claim.transaction_id,
+          );
+
+
+        if (!original) {
+          continue;
+        }
+
+
+        if (
+          original.date >
+          balanceThrough
+        ) {
+          continue;
+        }
+
+
+        if (
+          !claim.reimbursed_at ||
+          claim.reimbursed_at >
+            balanceThrough
+        ) {
+          outstandingReimbursements +=
+            asNumber(
+              claim.amount,
+            );
+        }
+      }
 
 
       const {
         data:
           budgets,
-        error,
+        error:
+          budgetError,
       } =
         await req.supabase
-          .from('budgets')
+          .from(
+            'budgets',
+          )
           .select(`
-            *,
+            amount,
+            category_id,
             category:categories(
-              id,
-              name,
-              icon,
-              type
+              name
             )
           `)
           .eq(
             'month',
             start,
-          )
-          .order(
-            'created_at',
           );
 
-      if (error) {
-        throw error;
-      }
 
-
-      /*
-       * Reimbursable expenses are physical
-       * cash outflows, but they are not the
-       * user's personal budget spending.
-       */
-      const {
-        data:
-          expenses,
-        error:
-          expenseError,
-      } =
-        await req.supabase
-          .from(
-            'transactions',
-          )
-          .select(`
-            amount,
-            category_id
-          `)
-          .eq(
-            'type',
-            'expense',
-          )
-          .eq(
-            'is_reimbursable',
-            false,
-          )
-          .gte(
-            'date',
-            start,
-          )
-          .lt(
-            'date',
-            nextMonth,
-          );
-
-      if (expenseError) {
-        throw expenseError;
-      }
-
-
-      const spentByCategory =
-        new Map();
-
-      for (
-        const tx of
-        expenses || []
+      if (
+        budgetError
       ) {
-        spentByCategory.set(
-          tx.category_id,
-
-          (
-            spentByCategory.get(
-              tx.category_id,
-            ) || 0
-          ) +
-            asNumber(
-              tx.amount,
-            ),
-        );
+        throw budgetError;
       }
 
 
-      const result =
+      const budgetTotal =
         (budgets || [])
-          .map(
-            (budget) => {
-              const spent =
-                spentByCategory.get(
-                  budget.category_id,
-                ) || 0;
+          .reduce(
+            (
+              sum,
+              item,
+            ) =>
+              sum +
+              asNumber(
+                item.amount,
+              ),
 
-              const amount =
-                asNumber(
-                  budget.amount,
-                );
-
-              return {
-                ...budget,
-
-                spent,
-
-                remaining:
-                  amount -
-                  spent,
-
-                percentage:
-                  amount > 0
-                    ? (
-                        spent /
-                        amount
-                      ) * 100
-                    : 0,
-              };
-            },
+            0,
           );
 
 
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
+      const budgetSpent =
+        (budgets || [])
+          .reduce(
+            (
+              sum,
+              item,
+            ) =>
+              sum +
+              (
+                categorySpendById.get(
+                  item.category_id,
+                ) || 0
+              ),
 
-
-router.post(
-  '/',
-  async (
-    req,
-    res,
-    next,
-  ) => {
-    try {
-      const input =
-        budgetSchema.parse(
-          req.body,
-        );
-
-      const monthDate =
-        `${input.month}-01`;
-
-
-      const {
-        data,
-        error,
-      } =
-        await req.supabase
-          .from('budgets')
-          .upsert(
-            {
-              user_id:
-                req.user.id,
-
-              month:
-                monthDate,
-
-              category_id:
-                input.category_id,
-
-              amount:
-                input.amount,
-            },
-
-            {
-              onConflict:
-                'user_id,month,category_id',
-            },
-          )
-          .select('*')
-          .single();
-
-      if (error) {
-        throw error;
-      }
-
-      res
-        .status(201)
-        .json(data);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-
-router.delete(
-  '/:id',
-  async (
-    req,
-    res,
-    next,
-  ) => {
-    try {
-      const {
-        error,
-      } =
-        await req.supabase
-          .from('budgets')
-          .delete()
-          .eq(
-            'id',
-            req.params.id,
+            0,
           );
 
-      if (error) {
-        throw error;
-      }
 
-      res
-        .status(204)
-        .end();
+      res.json({
+        month,
+
+        balance_label:
+          month ===
+          currentMonth
+            ? 'Current Balance'
+            : 'Period Closing Balance',
+
+        opening_balance:
+          openingBalance,
+
+        current_balance:
+          currentBalance,
+
+        total_income:
+          totalIncome,
+
+        total_expenses:
+          totalExpenses,
+
+        net_cash_flow:
+          totalIncome -
+          totalExpenses,
+
+        outstanding_reimbursements:
+          outstandingReimbursements,
+
+        budget_status: {
+          total:
+            budgetTotal,
+
+          spent:
+            budgetSpent,
+
+          remaining:
+            budgetTotal -
+            budgetSpent,
+
+          percentage:
+            budgetTotal > 0
+              ? (
+                  budgetSpent /
+                  budgetTotal
+                ) * 100
+              : 0,
+        },
+
+        category_spending:
+          Array
+            .from(
+              categorySpend.entries(),
+            )
+            .map(
+              ([
+                name,
+                amount,
+              ]) => ({
+                name,
+                amount,
+              }),
+            )
+            .sort(
+              (
+                a,
+                b,
+              ) =>
+                b.amount -
+                a.amount,
+            ),
+
+        recent_transactions:
+          transactions
+            .filter(
+              (transaction) =>
+                transaction.date >=
+                  start &&
+                transaction.date <
+                  nextMonth,
+            )
+            .slice(
+              0,
+              6,
+            ),
+      });
+
     } catch (error) {
       next(error);
     }

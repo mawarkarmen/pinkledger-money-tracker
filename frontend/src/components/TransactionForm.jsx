@@ -4,11 +4,24 @@ import {
   useState,
 } from 'react';
 
+import {
+  Plus,
+  Trash2,
+} from 'lucide-react';
+
 import { api } from '../lib/api';
 
 import {
   todayInput,
 } from '../lib/format';
+
+
+function blankPerson() {
+  return {
+    person_name: '',
+    amount: '',
+  };
+}
 
 
 function createEmptyForm() {
@@ -40,8 +53,15 @@ function createEmptyForm() {
     is_reimbursable:
       false,
 
-    reimbursed_by:
+    is_split_expense:
+      false,
+
+    personal_amount:
       '',
+
+    reimbursement_people: [
+      blankPerson(),
+    ],
   };
 }
 
@@ -62,11 +82,13 @@ export default function TransactionForm({
         createEmptyForm(),
     );
 
+
   const [
     saving,
     setSaving,
   ] =
     useState(false);
+
 
   const [
     error,
@@ -87,6 +109,27 @@ export default function TransactionForm({
     }
 
 
+    const claims =
+      Array.isArray(
+        transaction.reimbursements,
+      ) &&
+      transaction.reimbursements.length
+        ? transaction.reimbursements.map(
+            (claim) => ({
+              person_name:
+                claim.person_name,
+
+              amount:
+                String(
+                  claim.amount,
+                ),
+            }),
+          )
+        : [
+            blankPerson(),
+          ];
+
+
     setForm({
       type:
         transaction.type ||
@@ -97,23 +140,19 @@ export default function TransactionForm({
         todayInput(),
 
       description:
-        transaction
-          .description ||
+        transaction.description ||
         '',
 
       category_id:
-        transaction
-          .category_id ||
+        transaction.category_id ||
         '',
 
       source_account_id:
-        transaction
-          .source_account_id ||
+        transaction.source_account_id ||
         '',
 
       destination_account_id:
-        transaction
-          .destination_account_id ||
+        transaction.destination_account_id ||
         '',
 
       amount:
@@ -130,11 +169,16 @@ export default function TransactionForm({
             .is_reimbursable,
         ),
 
-      reimbursed_by:
-        transaction
-          .reimbursed_by ||
+      is_split_expense:
+        false,
+
+      personal_amount:
         '',
+
+      reimbursement_people:
+        claims,
     });
+
 
     setError('');
   }, [transaction]);
@@ -173,12 +217,62 @@ export default function TransactionForm({
     );
 
 
+  const totalAmount =
+    Number(
+      form.amount,
+    ) || 0;
+
+
+  const personalAmount =
+    Number(
+      form.personal_amount,
+    ) || 0;
+
+
+  const reimbursableAmount =
+    form.is_split_expense
+      ? Math.max(
+          0,
+
+          totalAmount -
+          personalAmount,
+        )
+      : form.is_reimbursable
+        ? totalAmount
+        : 0;
+
+
+  const allocatedReimbursement =
+    form.reimbursement_people
+      .reduce(
+        (
+          total,
+          person,
+        ) =>
+          total +
+          (
+            Number(
+              person.amount,
+            ) || 0
+          ),
+
+        0,
+      );
+
+
+  const remainingAllocation =
+    reimbursableAmount -
+    allocatedReimbursement;
+
+
   function setField(
     field,
     value,
   ) {
     setForm(
-      (current) => ({
+      (
+        current,
+      ) => ({
         ...current,
 
         [field]:
@@ -193,8 +287,11 @@ export default function TransactionForm({
   ) {
     setError('');
 
+
     setForm(
-      (current) => ({
+      (
+        current,
+      ) => ({
         ...current,
 
         type,
@@ -203,34 +300,295 @@ export default function TransactionForm({
           '',
 
         source_account_id:
-          type === 'income'
+          type ===
+          'income'
             ? ''
             : current
                 .source_account_id,
 
         destination_account_id:
-          type === 'expense'
+          type ===
+          'expense'
             ? ''
             : current
                 .destination_account_id,
 
-        /*
-         * Reimbursement is only available
-         * for expenses.
-         */
         is_reimbursable:
-          type === 'expense'
+          type ===
+          'expense'
             ? current
                 .is_reimbursable
             : false,
 
-        reimbursed_by:
-          type === 'expense'
+        is_split_expense:
+          type ===
+          'expense'
             ? current
-                .reimbursed_by
+                .is_split_expense
+            : false,
+
+        personal_amount:
+          type ===
+          'expense'
+            ? current
+                .personal_amount
             : '',
       }),
     );
+  }
+
+
+  function toggleSplit(
+    enabled,
+  ) {
+    setError('');
+
+
+    setForm(
+      (
+        current,
+      ) => ({
+        ...current,
+
+        is_split_expense:
+          enabled,
+
+        is_reimbursable:
+          enabled
+            ? false
+            : current
+                .is_reimbursable,
+
+        personal_amount:
+          enabled
+            ? current
+                .personal_amount
+            : '',
+
+        reimbursement_people:
+          current
+            .reimbursement_people
+            .length
+            ? current
+                .reimbursement_people
+            : [
+                blankPerson(),
+              ],
+      }),
+    );
+  }
+
+
+  function toggleEntireReimbursable(
+    enabled,
+  ) {
+    setError('');
+
+
+    setForm(
+      (
+        current,
+      ) => ({
+        ...current,
+
+        is_reimbursable:
+          enabled,
+
+        is_split_expense:
+          enabled
+            ? false
+            : current
+                .is_split_expense,
+
+        personal_amount:
+          enabled
+            ? ''
+            : current
+                .personal_amount,
+
+        reimbursement_people:
+          current
+            .reimbursement_people
+            .length
+            ? current
+                .reimbursement_people
+            : [
+                blankPerson(),
+              ],
+      }),
+    );
+  }
+
+
+  function updatePerson(
+    index,
+    field,
+    value,
+  ) {
+    setForm(
+      (
+        current,
+      ) => ({
+        ...current,
+
+        reimbursement_people:
+          current
+            .reimbursement_people
+            .map(
+              (
+                person,
+                personIndex,
+              ) =>
+                personIndex ===
+                index
+                  ? {
+                      ...person,
+
+                      [field]:
+                        value,
+                    }
+                  : person,
+            ),
+      }),
+    );
+  }
+
+
+  function addPerson() {
+    setForm(
+      (
+        current,
+      ) => ({
+        ...current,
+
+        reimbursement_people: [
+          ...current
+            .reimbursement_people,
+
+          blankPerson(),
+        ],
+      }),
+    );
+  }
+
+
+  function removePerson(
+    index,
+  ) {
+    setForm(
+      (
+        current,
+      ) => {
+
+        if (
+          current
+            .reimbursement_people
+            .length === 1
+        ) {
+          return {
+            ...current,
+
+            reimbursement_people: [
+              blankPerson(),
+            ],
+          };
+        }
+
+
+        return {
+          ...current,
+
+          reimbursement_people:
+            current
+              .reimbursement_people
+              .filter(
+                (
+                  _person,
+                  personIndex,
+                ) =>
+                  personIndex !==
+                  index,
+              ),
+        };
+      },
+    );
+  }
+
+
+  function validatePeople(
+    expectedAmount,
+  ) {
+    if (
+      !form
+        .reimbursement_people
+        .length
+    ) {
+      return (
+        'Add at least one person who will reimburse you.'
+      );
+    }
+
+
+    for (
+      const person of
+      form
+        .reimbursement_people
+    ) {
+      if (
+        !person
+          .person_name
+          .trim()
+      ) {
+        return (
+          'Enter a name for every person who will reimburse you.'
+        );
+      }
+
+
+      const amount =
+        Number(
+          person.amount,
+        );
+
+
+      if (
+        !Number.isFinite(
+          amount,
+        ) ||
+        amount <= 0
+      ) {
+        return (
+          `Enter a valid reimbursement amount for ${person.person_name || 'each person'}.`
+        );
+      }
+    }
+
+
+    const expectedCents =
+      Math.round(
+        expectedAmount *
+          100,
+      );
+
+
+    const allocatedCents =
+      Math.round(
+        allocatedReimbursement *
+          100,
+      );
+
+
+    if (
+      expectedCents !==
+      allocatedCents
+    ) {
+      return (
+        'The amounts assigned to people must equal the total reimbursable amount.'
+      );
+    }
+
+
+    return '';
   }
 
 
@@ -281,7 +639,8 @@ export default function TransactionForm({
         form.type ===
           'transfer'
       ) &&
-      !form.source_account_id
+      !form
+        .source_account_id
     ) {
       return (
         'Please select a source account.'
@@ -308,12 +667,76 @@ export default function TransactionForm({
     if (
       form.type ===
         'transfer' &&
-      form.source_account_id ===
-        form.destination_account_id
+      form
+        .source_account_id ===
+        form
+          .destination_account_id
     ) {
       return (
         'Source and destination accounts must be different.'
       );
+    }
+
+
+    if (
+      form.type ===
+        'expense' &&
+      form
+        .is_split_expense
+    ) {
+      if (
+        !Number.isFinite(
+          personalAmount,
+        ) ||
+        personalAmount <= 0
+      ) {
+        return (
+          'Enter the amount that belongs to you.'
+        );
+      }
+
+
+      if (
+        personalAmount >=
+        amount
+      ) {
+        return (
+          'Your portion must be smaller than the total payment.'
+        );
+      }
+
+
+      const peopleError =
+        validatePeople(
+          reimbursableAmount,
+        );
+
+
+      if (
+        peopleError
+      ) {
+        return peopleError;
+      }
+    }
+
+
+    if (
+      form.type ===
+        'expense' &&
+      form
+        .is_reimbursable
+    ) {
+      const peopleError =
+        validatePeople(
+          amount,
+        );
+
+
+      if (
+        peopleError
+      ) {
+        return peopleError;
+      }
     }
 
 
@@ -326,8 +749,10 @@ export default function TransactionForm({
   ) {
     event.preventDefault();
 
+
     const validationError =
       validate();
+
 
     if (
       validationError
@@ -346,6 +771,84 @@ export default function TransactionForm({
 
 
     try {
+
+      const people =
+        form
+          .reimbursement_people
+          .map(
+            (person) => ({
+              person_name:
+                person
+                  .person_name
+                  .trim(),
+
+              amount:
+                Number(
+                  person.amount,
+                ),
+            }),
+          );
+
+
+      if (
+        form.type ===
+          'expense' &&
+        form
+          .is_split_expense
+      ) {
+        await api(
+          '/transactions/split',
+
+          {
+            method:
+              'POST',
+
+            body:
+              JSON.stringify({
+                date:
+                  form.date,
+
+                description:
+                  form
+                    .description
+                    .trim(),
+
+                total_amount:
+                  Number(
+                    form.amount,
+                  ),
+
+                personal_amount:
+                  Number(
+                    form
+                      .personal_amount,
+                  ),
+
+                category_id:
+                  form.category_id,
+
+                source_account_id:
+                  form
+                    .source_account_id,
+
+                reimbursement_people:
+                  people,
+
+                notes:
+                  form.notes
+                    .trim() ||
+                  null,
+              }),
+          },
+        );
+
+
+        await onSaved();
+
+        return;
+      }
+
+
       const payload = {
         type:
           form.type,
@@ -367,8 +870,7 @@ export default function TransactionForm({
           form.type ===
             'transfer'
             ? null
-            : form
-                .category_id ||
+            : form.category_id ||
               null,
 
         source_account_id:
@@ -399,15 +901,13 @@ export default function TransactionForm({
                 .is_reimbursable
             : false,
 
-        reimbursed_by:
+        reimbursement_people:
           form.type ===
               'expense' &&
-          form.is_reimbursable
-            ? form
-                .reimbursed_by
-                .trim() ||
-              null
-            : null,
+          form
+            .is_reimbursable
+            ? people
+            : [],
       };
 
 
@@ -415,6 +915,7 @@ export default function TransactionForm({
         transaction
           ? `/transactions/${transaction.id}`
           : '/transactions';
+
 
       const method =
         transaction
@@ -424,6 +925,7 @@ export default function TransactionForm({
 
       await api(
         path,
+
         {
           method,
 
@@ -436,15 +938,28 @@ export default function TransactionForm({
 
 
       await onSaved();
+
     } catch (err) {
       setError(
         err.message ||
           'Unable to save the transaction.',
       );
+
     } finally {
       setSaving(false);
     }
   }
+
+
+  const showPeople =
+    form.type ===
+      'expense' &&
+    (
+      form
+        .is_split_expense ||
+      form
+        .is_reimbursable
+    );
 
 
   return (
@@ -452,7 +967,9 @@ export default function TransactionForm({
       className="transaction-form"
       onSubmit={submit}
     >
+
       <div className="transaction-form-scroll">
+
         <div
           className="segment-control transaction-type-control"
           aria-label="Transaction type"
@@ -480,9 +997,7 @@ export default function TransactionForm({
               >
                 {type[0]
                   .toUpperCase() +
-                  type.slice(
-                    1,
-                  )}
+                  type.slice(1)}
               </button>
             ),
           )}
@@ -490,6 +1005,7 @@ export default function TransactionForm({
 
 
         <div className="form-grid two">
+
           <label>
             <span>
               Amount
@@ -542,6 +1058,7 @@ export default function TransactionForm({
               }
             />
           </label>
+
         </div>
 
 
@@ -565,7 +1082,7 @@ export default function TransactionForm({
                   .value,
               )
             }
-            placeholder="Example: Lunch, salary, transfer to wallet"
+            placeholder="Example: Dinner"
           />
         </label>
 
@@ -573,6 +1090,7 @@ export default function TransactionForm({
         {form.type ===
           'expense' && (
           <div className="form-grid two">
+
             <label>
               <span>
                 Category
@@ -581,8 +1099,7 @@ export default function TransactionForm({
               <select
                 required
                 value={
-                  form
-                    .category_id
+                  form.category_id
                 }
                 onChange={(
                   event,
@@ -667,6 +1184,7 @@ export default function TransactionForm({
                 )}
               </select>
             </label>
+
           </div>
         )}
 
@@ -674,6 +1192,7 @@ export default function TransactionForm({
         {form.type ===
           'income' && (
           <div className="form-grid two">
+
             <label>
               <span>
                 Category
@@ -682,8 +1201,7 @@ export default function TransactionForm({
               <select
                 required
                 value={
-                  form
-                    .category_id
+                  form.category_id
                 }
                 onChange={(
                   event,
@@ -768,6 +1286,7 @@ export default function TransactionForm({
                 )}
               </select>
             </label>
+
           </div>
         )}
 
@@ -775,6 +1294,7 @@ export default function TransactionForm({
         {form.type ===
           'transfer' && (
           <div className="form-grid two">
+
             <label>
               <span>
                 Source account
@@ -869,96 +1389,301 @@ export default function TransactionForm({
                 )}
               </select>
             </label>
+
           </div>
         )}
 
 
         {form.type ===
           'expense' && (
-          <>
-            <label className="toggle-row">
-              <div>
-                <strong>
-                  Reimbursable expense
-                </strong>
+          <div className="expense-option-grid">
 
-                <span>
-                  Enable this when you are temporarily paying for someone else. It will reduce the account balance but will not consume your budget or personal expense total.
-                </span>
-              </div>
+            <label
+              className={`expense-option-card ${
+                form
+                  .is_split_expense
+                  ? 'active'
+                  : ''
+              }`}
+            >
+              <div className="expense-option-content">
 
-              <input
-                type="checkbox"
-                checked={
-                  form
-                    .is_reimbursable
-                }
-                onChange={(
-                  event,
-                ) =>
-                  setForm(
-                    (
-                      current,
-                    ) => ({
-                      ...current,
+                <div className="expense-option-text">
+                  <strong>
+                    Split expense
+                  </strong>
 
-                      is_reimbursable:
-                        event
-                          .target
-                          .checked,
+                  <span>
+                    Part of the payment is yours and the rest will be reimbursed.
+                  </span>
+                </div>
 
-                      reimbursed_by:
-                        event
-                          .target
-                          .checked
-                          ? current
-                              .reimbursed_by
-                          : '',
-                    }),
-                  )
-                }
-              />
-            </label>
-
-
-            {form
-              .is_reimbursable && (
-              <label>
-                <span>
-                  Reimbursed by{' '}
-                  <small>
-                    optional
-                  </small>
-                </span>
 
                 <input
-                  value={
+                  type="checkbox"
+                  className="small-checkbox"
+                  checked={
                     form
-                      .reimbursed_by
+                      .is_split_expense
                   }
                   onChange={(
                     event,
                   ) =>
-                    setField(
-                      'reimbursed_by',
+                    toggleSplit(
                       event
                         .target
-                        .value,
+                        .checked,
                     )
                   }
-                  placeholder="Example: John"
                 />
-              </label>
-            )}
+
+              </div>
+            </label>
+
+
+            <label
+              className={`expense-option-card ${
+                form
+                  .is_reimbursable
+                  ? 'active'
+                  : ''
+              }`}
+            >
+              <div className="expense-option-content">
+
+                <div className="expense-option-text">
+                  <strong>
+                    Entire expense is reimbursable
+                  </strong>
+
+                  <span>
+                    The complete payment will be paid back by one or more people.
+                  </span>
+                </div>
+
+
+                <input
+                  type="checkbox"
+                  className="small-checkbox"
+                  checked={
+                    form
+                      .is_reimbursable
+                  }
+                  onChange={(
+                    event,
+                  ) =>
+                    toggleEntireReimbursable(
+                      event
+                        .target
+                        .checked,
+                    )
+                  }
+                />
+
+              </div>
+            </label>
+
+          </div>
+        )}
+
+
+        {form
+          .is_split_expense && (
+          <div className="form-grid two">
+
+            <label>
+              <span>
+                Your portion
+              </span>
+
+              <input
+                required
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={
+                  form
+                    .personal_amount
+                }
+                onChange={(
+                  event,
+                ) =>
+                  setField(
+                    'personal_amount',
+                    event
+                      .target
+                      .value,
+                  )
+                }
+                placeholder="Example: 30000"
+              />
+            </label>
+
+
+            <label>
+              <span>
+                Total reimbursable
+              </span>
+
+              <input
+                readOnly
+                value={
+                  reimbursableAmount
+                }
+              />
+            </label>
+
+          </div>
+        )}
+
+
+        {showPeople && (
+          <>
+            <div className="budget-edit-info">
+
+              <span>
+                Reimbursement allocation
+              </span>
+
+              <strong>
+                Rp{' '}
+                {allocatedReimbursement
+                  .toLocaleString()}
+                {' / '}
+                Rp{' '}
+                {reimbursableAmount
+                  .toLocaleString()}
+              </strong>
+
+              <small>
+                Remaining:{' '}
+                Rp{' '}
+                {remainingAllocation
+                  .toLocaleString()}
+              </small>
+
+            </div>
+
+
+            {form
+              .reimbursement_people
+              .map(
+                (
+                  person,
+                  index,
+                ) => (
+                  <div
+                    key={
+                      index
+                    }
+                  >
+
+                    <div className="form-grid two">
+
+                      <label>
+                        <span>
+                          Person
+                        </span>
+
+                        <input
+                          value={
+                            person
+                              .person_name
+                          }
+                          onChange={(
+                            event,
+                          ) =>
+                            updatePerson(
+                              index,
+                              'person_name',
+                              event
+                                .target
+                                .value,
+                            )
+                          }
+                          placeholder="Example: John"
+                        />
+                      </label>
+
+
+                      <label>
+                        <span>
+                          Amount
+                        </span>
+
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={
+                            person
+                              .amount
+                          }
+                          onChange={(
+                            event,
+                          ) =>
+                            updatePerson(
+                              index,
+                              'amount',
+                              event
+                                .target
+                                .value,
+                            )
+                          }
+                          placeholder="0"
+                        />
+                      </label>
+
+                    </div>
+
+
+                    <div className="form-actions">
+
+                      <button
+                        type="button"
+                        className="button ghost"
+                        onClick={() =>
+                          removePerson(
+                            index,
+                          )
+                        }
+                      >
+                        <Trash2
+                          size={15}
+                        />
+
+                        Remove
+                      </button>
+
+                    </div>
+
+                  </div>
+                ),
+              )}
+
+
+            <button
+              type="button"
+              className="button secondary"
+              onClick={
+                addPerson
+              }
+            >
+              <Plus
+                size={16}
+              />
+
+              Add another person
+            </button>
+
           </>
         )}
 
 
         <label>
           <span>
-            Notes
+            Notes{' '}
             <small>
-              {' '}
               optional
             </small>
           </span>
@@ -988,31 +1713,45 @@ export default function TransactionForm({
             {error}
           </div>
         )}
+
       </div>
 
 
       <div className="transaction-form-footer">
+
         <button
           type="button"
           className="button ghost"
-          onClick={onCancel}
-          disabled={saving}
+          onClick={
+            onCancel
+          }
+          disabled={
+            saving
+          }
         >
           Cancel
         </button>
 
+
         <button
           type="submit"
           className="button primary"
-          disabled={saving}
+          disabled={
+            saving
+          }
         >
           {saving
             ? 'Saving...'
-            : transaction
-              ? 'Update transaction'
-              : 'Save transaction'}
+            : form
+                .is_split_expense
+              ? 'Save split expense'
+              : transaction
+                ? 'Update transaction'
+                : 'Save transaction'}
         </button>
+
       </div>
+
     </form>
   );
 }

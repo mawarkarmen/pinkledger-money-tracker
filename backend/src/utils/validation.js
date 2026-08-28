@@ -1,255 +1,462 @@
 import { z } from 'zod';
 
-export const accountSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(1)
-    .max(80),
 
-  type: z.enum([
-    'cash',
-    'bank',
-    'ewallet',
-    'savings',
-    'credit_card',
-    'other',
-  ]),
+const reimbursementPersonSchema =
+  z.object({
+    person_name: z
+      .string()
+      .trim()
+      .min(
+        1,
+        'Person name is required.',
+      )
+      .max(80),
 
-  opening_balance: z
-    .coerce
-    .number()
-    .finite()
-    .default(0),
-
-  opening_date: z
-    .string()
-    .regex(
-      /^\d{4}-\d{2}-\d{2}$/,
-    ),
-
-  currency: z
-    .string()
-    .trim()
-    .min(3)
-    .max(3)
-    .default('IDR'),
-});
+    amount: z
+      .coerce
+      .number()
+      .positive(
+        'Reimbursement amount must be greater than zero.',
+      ),
+  });
 
 
-export const categorySchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(1)
-    .max(60),
-
-  type: z.enum([
-    'income',
-    'expense',
-  ]),
-
-  icon: z
-    .string()
-    .trim()
-    .max(40)
-    .optional()
-    .default(
-      'CircleDollarSign',
-    ),
-});
+function toCents(value) {
+  return Math.round(
+    Number(value) * 100,
+  );
+}
 
 
-export const transactionSchema = z
-  .object({
+function validateReimbursementTotal({
+  people,
+  expectedAmount,
+  ctx,
+}) {
+  if (!people.length) {
+    ctx.addIssue({
+      code:
+        z.ZodIssueCode.custom,
+
+      path: [
+        'reimbursement_people',
+      ],
+
+      message:
+        'Add at least one person who will reimburse this expense.',
+    });
+
+    return;
+  }
+
+
+  const allocated =
+    people.reduce(
+      (
+        total,
+        person,
+      ) =>
+        total +
+        toCents(
+          person.amount,
+        ),
+
+      0,
+    );
+
+
+  const expected =
+    toCents(
+      expectedAmount,
+    );
+
+
+  if (
+    allocated !== expected
+  ) {
+    ctx.addIssue({
+      code:
+        z.ZodIssueCode.custom,
+
+      path: [
+        'reimbursement_people',
+      ],
+
+      message:
+        'The reimbursement amounts must equal the reimbursable portion.',
+    });
+  }
+}
+
+
+export const accountSchema =
+  z.object({
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80),
+
     type: z.enum([
-      'income',
-      'expense',
-      'transfer',
+      'cash',
+      'bank',
+      'ewallet',
+      'savings',
+      'credit_card',
+      'other',
     ]),
 
-    date: z
+    opening_balance: z
+      .coerce
+      .number()
+      .finite()
+      .default(0),
+
+    opening_date: z
       .string()
       .regex(
         /^\d{4}-\d{2}-\d{2}$/,
       ),
 
-    description: z
+    currency: z
+      .string()
+      .trim()
+      .length(3)
+      .default('IDR'),
+  });
+
+
+export const categorySchema =
+  z.object({
+    name: z
       .string()
       .trim()
       .min(1)
-      .max(160),
+      .max(60),
 
-    amount: z
-      .coerce
-      .number()
-      .positive(),
+    type: z.enum([
+      'income',
+      'expense',
+    ]),
 
-    category_id: z
-      .string()
-      .uuid()
-      .nullable()
-      .optional(),
-
-    source_account_id: z
-      .string()
-      .uuid()
-      .nullable()
-      .optional(),
-
-    destination_account_id: z
-      .string()
-      .uuid()
-      .nullable()
-      .optional(),
-
-    notes: z
+    icon: z
       .string()
       .trim()
-      .max(500)
-      .nullable()
-      .optional(),
-
-    is_reimbursable: z
-      .boolean()
+      .max(40)
       .optional()
-      .default(false),
+      .default(
+        'CircleDollarSign',
+      ),
+  });
 
-    reimbursed_by: z
-      .string()
-      .trim()
-      .max(80)
-      .nullable()
-      .optional(),
-  })
-  .superRefine(
-    (value, ctx) => {
-      if (
-        value.type ===
-        'income'
-      ) {
+
+export const transactionSchema =
+  z
+    .object({
+      type: z.enum([
+        'income',
+        'expense',
+        'transfer',
+      ]),
+
+      date: z
+        .string()
+        .regex(
+          /^\d{4}-\d{2}-\d{2}$/,
+        ),
+
+      description: z
+        .string()
+        .trim()
+        .min(1)
+        .max(160),
+
+      amount: z
+        .coerce
+        .number()
+        .positive(),
+
+      category_id: z
+        .string()
+        .uuid()
+        .nullable()
+        .optional(),
+
+      source_account_id: z
+        .string()
+        .uuid()
+        .nullable()
+        .optional(),
+
+      destination_account_id: z
+        .string()
+        .uuid()
+        .nullable()
+        .optional(),
+
+      notes: z
+        .string()
+        .trim()
+        .max(500)
+        .nullable()
+        .optional(),
+
+      is_reimbursable: z
+        .boolean()
+        .optional()
+        .default(false),
+
+      reimbursement_people:
+        z
+          .array(
+            reimbursementPersonSchema,
+          )
+          .max(20)
+          .optional()
+          .default([]),
+    })
+
+    .superRefine(
+      (
+        value,
+        ctx,
+      ) => {
+
         if (
-          !value.destination_account_id
+          value.type ===
+          'income'
+        ) {
+          if (
+            !value
+              .destination_account_id
+          ) {
+            ctx.addIssue({
+              code:
+                z.ZodIssueCode
+                  .custom,
+
+              message:
+                'Income requires a destination account.',
+            });
+          }
+
+
+          if (
+            !value.category_id
+          ) {
+            ctx.addIssue({
+              code:
+                z.ZodIssueCode
+                  .custom,
+
+              message:
+                'Income requires a category.',
+            });
+          }
+
+
+          if (
+            value.is_reimbursable
+          ) {
+            ctx.addIssue({
+              code:
+                z.ZodIssueCode
+                  .custom,
+
+              message:
+                'Only expenses can be reimbursable.',
+            });
+          }
+        }
+
+
+        if (
+          value.type ===
+          'expense'
+        ) {
+          if (
+            !value
+              .source_account_id
+          ) {
+            ctx.addIssue({
+              code:
+                z.ZodIssueCode
+                  .custom,
+
+              message:
+                'Expense requires a source account.',
+            });
+          }
+
+
+          if (
+            !value.category_id
+          ) {
+            ctx.addIssue({
+              code:
+                z.ZodIssueCode
+                  .custom,
+
+              message:
+                'Expense requires a category.',
+            });
+          }
+
+
+          if (
+            value.is_reimbursable
+          ) {
+            validateReimbursementTotal({
+              people:
+                value
+                  .reimbursement_people,
+
+              expectedAmount:
+                value.amount,
+
+              ctx,
+            });
+          }
+        }
+
+
+        if (
+          value.type ===
+          'transfer'
+        ) {
+          if (
+            !value
+              .source_account_id ||
+            !value
+              .destination_account_id
+          ) {
+            ctx.addIssue({
+              code:
+                z.ZodIssueCode
+                  .custom,
+
+              message:
+                'Transfer requires source and destination accounts.',
+            });
+          }
+
+
+          if (
+            value
+              .source_account_id &&
+            value
+              .destination_account_id &&
+            value
+              .source_account_id ===
+              value
+                .destination_account_id
+          ) {
+            ctx.addIssue({
+              code:
+                z.ZodIssueCode
+                  .custom,
+
+              message:
+                'Transfer accounts must be different.',
+            });
+          }
+        }
+      },
+    );
+
+
+export const splitExpenseSchema =
+  z
+    .object({
+      date: z
+        .string()
+        .regex(
+          /^\d{4}-\d{2}-\d{2}$/,
+        ),
+
+      description: z
+        .string()
+        .trim()
+        .min(1)
+        .max(160),
+
+      total_amount: z
+        .coerce
+        .number()
+        .positive(),
+
+      personal_amount: z
+        .coerce
+        .number()
+        .positive(),
+
+      category_id: z
+        .string()
+        .uuid(),
+
+      source_account_id: z
+        .string()
+        .uuid(),
+
+      notes: z
+        .string()
+        .trim()
+        .max(500)
+        .nullable()
+        .optional(),
+
+      reimbursement_people:
+        z
+          .array(
+            reimbursementPersonSchema,
+          )
+          .min(1)
+          .max(20),
+    })
+
+    .superRefine(
+      (
+        value,
+        ctx,
+      ) => {
+
+        if (
+          value.personal_amount >=
+          value.total_amount
         ) {
           ctx.addIssue({
             code:
-              z.ZodIssueCode
-                .custom,
+              z.ZodIssueCode.custom,
+
+            path: [
+              'personal_amount',
+            ],
 
             message:
-              'Income requires a destination account.',
+              'Your portion must be smaller than the total payment.',
           });
+
+          return;
         }
 
-        if (
-          !value.category_id
-        ) {
-          ctx.addIssue({
-            code:
-              z.ZodIssueCode
-                .custom,
 
-            message:
-              'Income requires a category.',
-          });
-        }
-
-        if (
-          value.is_reimbursable
-        ) {
-          ctx.addIssue({
-            code:
-              z.ZodIssueCode
-                .custom,
-
-            message:
-              'Only expenses can be reimbursable.',
-          });
-        }
-      }
+        const reimbursableAmount =
+          value.total_amount -
+          value.personal_amount;
 
 
-      if (
-        value.type ===
-        'expense'
-      ) {
-        if (
-          !value.source_account_id
-        ) {
-          ctx.addIssue({
-            code:
-              z.ZodIssueCode
-                .custom,
+        validateReimbursementTotal({
+          people:
+            value
+              .reimbursement_people,
 
-            message:
-              'Expense requires a source account.',
-          });
-        }
+          expectedAmount:
+            reimbursableAmount,
 
-        if (
-          !value.category_id
-        ) {
-          ctx.addIssue({
-            code:
-              z.ZodIssueCode
-                .custom,
-
-            message:
-              'Expense requires a category.',
-          });
-        }
-      }
-
-
-      if (
-        value.type ===
-        'transfer'
-      ) {
-        if (
-          !value.source_account_id ||
-          !value.destination_account_id
-        ) {
-          ctx.addIssue({
-            code:
-              z.ZodIssueCode
-                .custom,
-
-            message:
-              'Transfer requires source and destination accounts.',
-          });
-        }
-
-        if (
-          value.source_account_id &&
-          value.destination_account_id &&
-          value.source_account_id ===
-            value.destination_account_id
-        ) {
-          ctx.addIssue({
-            code:
-              z.ZodIssueCode
-                .custom,
-
-            message:
-              'Transfer accounts must be different.',
-          });
-        }
-
-        if (
-          value.is_reimbursable
-        ) {
-          ctx.addIssue({
-            code:
-              z.ZodIssueCode
-                .custom,
-
-            message:
-              'Transfers cannot be reimbursable.',
-          });
-        }
-      }
-    },
-  );
+          ctx,
+        });
+      },
+    );
 
 
 export const reimbursementSchema =
@@ -287,7 +494,8 @@ export const budgetSchema =
 
 export const reminderSchema =
   z.object({
-    enabled: z.boolean(),
+    enabled:
+      z.boolean(),
 
     reminder_time: z
       .string()
@@ -306,7 +514,8 @@ export const reminderSchema =
             new Intl.DateTimeFormat(
               'en-US',
               {
-                timeZone: zone,
+                timeZone:
+                  zone,
               },
             ).format();
 
@@ -325,9 +534,10 @@ export const accountUpdateSchema =
   accountSchema
     .partial()
     .extend({
-      is_active: z
-        .boolean()
-        .optional(),
+      is_active:
+        z
+          .boolean()
+          .optional(),
     });
 
 
@@ -335,7 +545,8 @@ export const categoryUpdateSchema =
   categorySchema
     .partial()
     .extend({
-      is_active: z
-        .boolean()
-        .optional(),
+      is_active:
+        z
+          .boolean()
+          .optional(),
     });
