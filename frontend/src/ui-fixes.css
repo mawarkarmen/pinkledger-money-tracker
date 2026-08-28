@@ -811,3 +811,35 @@ label small {
     animation: none;
   }
 }
+
+.budget-card-header .row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.budget-edit-info {
+  display: grid;
+  gap: 5px;
+
+  padding: 14px 16px;
+
+  border: 1px solid #f4d8e6;
+  border-radius: 14px;
+
+  background: #fff7fb;
+}
+
+.budget-edit-info span {
+  color: #71717a;
+  font-size: 0.82rem;
+}
+
+.budget-edit-info strong {
+  color: #27272a;
+  font-size: 1rem;
+}
+
+.budget-edit-info small {
+  color: #71717a;
+}

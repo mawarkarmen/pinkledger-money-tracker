@@ -5,6 +5,7 @@ import {
 } from 'react';
 
 import {
+  Edit3,
   Plus,
   Trash2,
 } from 'lucide-react';
@@ -47,6 +48,13 @@ function statusFor(percent) {
   ];
 }
 
+function createEmptyForm() {
+  return {
+    category_id: '',
+    amount: '',
+  };
+}
+
 export default function BudgetsPage() {
   const [month, setMonth] =
     useState(currentMonth());
@@ -63,11 +71,15 @@ export default function BudgetsPage() {
   const [open, setOpen] =
     useState(false);
 
+  const [
+    editingBudget,
+    setEditingBudget,
+  ] = useState(null);
+
   const [form, setForm] =
-    useState({
-      category_id: '',
-      amount: '',
-    });
+    useState(
+      createEmptyForm(),
+    );
 
   const [error, setError] =
     useState('');
@@ -75,7 +87,11 @@ export default function BudgetsPage() {
   const [saving, setSaving] =
     useState(false);
 
+  const [loading, setLoading] =
+    useState(true);
+
   async function load() {
+    setLoading(true);
     setError('');
 
     try {
@@ -116,6 +132,8 @@ export default function BudgetsPage() {
         err.message ||
           'Unable to load budgets.',
       );
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -147,28 +165,52 @@ export default function BudgetsPage() {
       );
     }, [budgets]);
 
-  function openBudgetModal() {
+  function openAddBudget() {
     setError('');
 
+    setEditingBudget(null);
+
+    setForm(
+      createEmptyForm(),
+    );
+
+    setOpen(true);
+  }
+
+  function openEditBudget(
+    budget,
+  ) {
+    setError('');
+
+    setEditingBudget(
+      budget,
+    );
+
     setForm({
-      category_id: '',
-      amount: '',
+      category_id:
+        budget.category_id,
+
+      amount:
+        String(
+          budget.amount ?? '',
+        ),
     });
 
     setOpen(true);
   }
 
-  function closeBudgetModal() {
+  function closeModal() {
     if (saving) {
       return;
     }
 
     setOpen(false);
 
-    setForm({
-      category_id: '',
-      amount: '',
-    });
+    setEditingBudget(null);
+
+    setForm(
+      createEmptyForm(),
+    );
 
     setError('');
   }
@@ -179,9 +221,7 @@ export default function BudgetsPage() {
     const amount =
       Number(form.amount);
 
-    if (
-      !form.category_id
-    ) {
+    if (!form.category_id) {
       setError(
         'Please select an expense category.',
       );
@@ -204,6 +244,15 @@ export default function BudgetsPage() {
     setError('');
 
     try {
+      /*
+       * The backend uses UPSERT on:
+       *
+       * user_id + month + category_id
+       *
+       * Therefore sending the same
+       * category and month updates the
+       * existing budget amount.
+       */
       await api('/budgets', {
         method: 'POST',
 
@@ -219,10 +268,11 @@ export default function BudgetsPage() {
 
       setOpen(false);
 
-      setForm({
-        category_id: '',
-        amount: '',
-      });
+      setEditingBudget(null);
+
+      setForm(
+        createEmptyForm(),
+      );
 
       await load();
     } catch (err) {
@@ -244,6 +294,8 @@ export default function BudgetsPage() {
     if (!confirmed) {
       return;
     }
+
+    setError('');
 
     try {
       await api(
@@ -292,7 +344,7 @@ export default function BudgetsPage() {
             type="button"
             className="button primary"
             onClick={
-              openBudgetModal
+              openAddBudget
             }
           >
             <Plus size={18} />
@@ -349,7 +401,13 @@ export default function BudgetsPage() {
         </div>
       ) : null}
 
-      {budgets.length ? (
+      {loading ? (
+        <div className="loading-panel">
+          <div className="loader" />
+
+          Loading budgets...
+        </div>
+      ) : budgets.length ? (
         <section className="budget-card-grid">
           {budgets.map(
             (budget) => {
@@ -381,20 +439,49 @@ export default function BudgetsPage() {
                       </h3>
                     </div>
 
-                    <button
-                      type="button"
-                      className="icon-button danger"
-                      onClick={() =>
-                        remove(
-                          budget.id,
-                        )
-                      }
-                      aria-label="Delete budget"
-                    >
-                      <Trash2
-                        size={16}
-                      />
-                    </button>
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className="icon-button"
+                        onClick={() =>
+                          openEditBudget(
+                            budget,
+                          )
+                        }
+                        aria-label={`Edit ${
+                          budget
+                            .category
+                            ?.name ||
+                          'budget'
+                        }`}
+                        title="Edit budget"
+                      >
+                        <Edit3
+                          size={16}
+                        />
+                      </button>
+
+                      <button
+                        type="button"
+                        className="icon-button danger"
+                        onClick={() =>
+                          remove(
+                            budget.id,
+                          )
+                        }
+                        aria-label={`Delete ${
+                          budget
+                            .category
+                            ?.name ||
+                          'budget'
+                        }`}
+                        title="Delete budget"
+                      >
+                        <Trash2
+                          size={16}
+                        />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="budget-amounts">
@@ -462,7 +549,7 @@ export default function BudgetsPage() {
                 type="button"
                 className="button primary"
                 onClick={
-                  openBudgetModal
+                  openAddBudget
                 }
               >
                 Add budget
@@ -474,11 +561,13 @@ export default function BudgetsPage() {
 
       <Modal
         open={open}
-        title="Set monthly budget"
-        eyebrow="Budget"
-        onClose={
-          closeBudgetModal
+        title={
+          editingBudget
+            ? 'Edit monthly budget'
+            : 'Set monthly budget'
         }
+        eyebrow="Budget"
+        onClose={closeModal}
       >
         <form
           className="form-stack modal-standard-form"
@@ -505,6 +594,11 @@ export default function BudgetsPage() {
               required
               value={
                 form.category_id
+              }
+              disabled={
+                Boolean(
+                  editingBudget,
+                )
               }
               onChange={(event) =>
                 setForm({
@@ -536,6 +630,17 @@ export default function BudgetsPage() {
                 ),
               )}
             </select>
+
+            {editingBudget ? (
+              <small>
+                Category cannot be
+                changed while editing.
+                Delete this budget and
+                create another one if
+                you want a different
+                category.
+              </small>
+            ) : null}
           </label>
 
           <label>
@@ -564,6 +669,27 @@ export default function BudgetsPage() {
             />
           </label>
 
+          {editingBudget ? (
+            <div className="budget-edit-info">
+              <span>
+                Current spending
+              </span>
+
+              <strong>
+                {formatMoney(
+                  editingBudget.spent,
+                  currency,
+                )}
+              </strong>
+
+              <small>
+                Changing the budget
+                amount does not change
+                recorded expenses.
+              </small>
+            </div>
+          ) : null}
+
           {error ? (
             <div className="alert error">
               {error}
@@ -575,7 +701,7 @@ export default function BudgetsPage() {
               type="button"
               className="button ghost"
               onClick={
-                closeBudgetModal
+                closeModal
               }
               disabled={saving}
             >
@@ -589,7 +715,9 @@ export default function BudgetsPage() {
             >
               {saving
                 ? 'Saving...'
-                : 'Save budget'}
+                : editingBudget
+                  ? 'Update budget'
+                  : 'Save budget'}
             </button>
           </div>
         </form>
