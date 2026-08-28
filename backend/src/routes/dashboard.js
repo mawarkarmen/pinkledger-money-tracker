@@ -1,103 +1,267 @@
 import { Router } from 'express';
-import { parseMonth } from '../utils/dates.js';
-import { asNumber, transactionTotalEffect } from '../utils/money.js';
+
+import {
+  budgetSchema,
+} from '../utils/validation.js';
+
+import {
+  parseMonth,
+} from '../utils/dates.js';
+
+import {
+  asNumber,
+} from '../utils/money.js';
 
 const router = Router();
 
-router.get('/', async (req, res, next) => {
-  try {
-    const month = req.query.month || new Date().toISOString().slice(0, 7);
-    const { start, next: nextMonth, end } = parseMonth(month);
-    const today = new Date().toISOString().slice(0, 10);
-    const currentMonth = today.slice(0, 7);
-    const balanceThrough = month === currentMonth ? today : end;
 
-    const [{ data: accounts, error: accountError }, { data: transactions, error: txError }] =
-      await Promise.all([
-        req.supabase.from('accounts').select('opening_balance, opening_date'),
-        req.supabase
-          .from('transactions')
-          .select('id,type,date,description,amount,category_id,source_account_id,destination_account_id,created_at,category:categories(name,icon)')
-          .lte('date', balanceThrough)
-          .order('date', { ascending: false })
-          .order('created_at', { ascending: false }),
-      ]);
+router.get(
+  '/',
+  async (
+    req,
+    res,
+    next,
+  ) => {
+    try {
+      const month =
+        req.query.month ||
+        new Date()
+          .toISOString()
+          .slice(0, 7);
 
-    if (accountError) throw accountError;
-    if (txError) throw txError;
+      const {
+        start,
+        next: nextMonth,
+      } =
+        parseMonth(month);
 
-    const openingBalanceBase = (accounts || []).reduce(
-      (sum, account) => sum + (account.opening_date <= start ? asNumber(account.opening_balance) : 0),
-      0,
-    );
-    const currentBalanceBase = (accounts || []).reduce(
-      (sum, account) => sum + (account.opening_date <= balanceThrough ? asNumber(account.opening_balance) : 0),
-      0,
-    );
 
-    let openingBalance = openingBalanceBase;
-    let currentBalance = currentBalanceBase;
-    let totalIncome = 0;
-    let totalExpenses = 0;
-    const categorySpend = new Map();
-    const categorySpendById = new Map();
+      const {
+        data:
+          budgets,
+        error,
+      } =
+        await req.supabase
+          .from('budgets')
+          .select(`
+            *,
+            category:categories(
+              id,
+              name,
+              icon,
+              type
+            )
+          `)
+          .eq(
+            'month',
+            start,
+          )
+          .order(
+            'created_at',
+          );
 
-    for (const tx of transactions || []) {
-      const effect = transactionTotalEffect(tx);
-      currentBalance += effect;
-
-      if (tx.date < start) {
-        openingBalance += effect;
-      } else if (tx.date < nextMonth) {
-        if (tx.type === 'income') totalIncome += asNumber(tx.amount);
-        if (tx.type === 'expense') {
-          const amount = asNumber(tx.amount);
-          totalExpenses += amount;
-          const name = tx.category?.name || 'Uncategorized';
-          categorySpend.set(name, (categorySpend.get(name) || 0) + amount);
-          if (tx.category_id) {
-            categorySpendById.set(tx.category_id, (categorySpendById.get(tx.category_id) || 0) + amount);
-          }
-        }
+      if (error) {
+        throw error;
       }
+
+
+      /*
+       * Reimbursable expenses are physical
+       * cash outflows, but they are not the
+       * user's personal budget spending.
+       */
+      const {
+        data:
+          expenses,
+        error:
+          expenseError,
+      } =
+        await req.supabase
+          .from(
+            'transactions',
+          )
+          .select(`
+            amount,
+            category_id
+          `)
+          .eq(
+            'type',
+            'expense',
+          )
+          .eq(
+            'is_reimbursable',
+            false,
+          )
+          .gte(
+            'date',
+            start,
+          )
+          .lt(
+            'date',
+            nextMonth,
+          );
+
+      if (expenseError) {
+        throw expenseError;
+      }
+
+
+      const spentByCategory =
+        new Map();
+
+      for (
+        const tx of
+        expenses || []
+      ) {
+        spentByCategory.set(
+          tx.category_id,
+
+          (
+            spentByCategory.get(
+              tx.category_id,
+            ) || 0
+          ) +
+            asNumber(
+              tx.amount,
+            ),
+        );
+      }
+
+
+      const result =
+        (budgets || [])
+          .map(
+            (budget) => {
+              const spent =
+                spentByCategory.get(
+                  budget.category_id,
+                ) || 0;
+
+              const amount =
+                asNumber(
+                  budget.amount,
+                );
+
+              return {
+                ...budget,
+
+                spent,
+
+                remaining:
+                  amount -
+                  spent,
+
+                percentage:
+                  amount > 0
+                    ? (
+                        spent /
+                        amount
+                      ) * 100
+                    : 0,
+              };
+            },
+          );
+
+
+      res.json(result);
+    } catch (error) {
+      next(error);
     }
+  },
+);
 
-    const { data: budgets, error: budgetError } = await req.supabase
-      .from('budgets')
-      .select('amount, category_id, category:categories(name)')
-      .eq('month', start);
-    if (budgetError) throw budgetError;
 
-    const budgetTotal = (budgets || []).reduce((sum, item) => sum + asNumber(item.amount), 0);
-    const budgetSpent = (budgets || []).reduce(
-      (sum, item) => sum + (categorySpendById.get(item.category_id) || 0),
-      0,
-    );
+router.post(
+  '/',
+  async (
+    req,
+    res,
+    next,
+  ) => {
+    try {
+      const input =
+        budgetSchema.parse(
+          req.body,
+        );
 
-    res.json({
-      month,
-      balance_label: month === currentMonth ? 'Current Balance' : 'Period Closing Balance',
-      opening_balance: openingBalance,
-      current_balance: currentBalance,
-      total_income: totalIncome,
-      total_expenses: totalExpenses,
-      net_cash_flow: totalIncome - totalExpenses,
-      budget_status: {
-        total: budgetTotal,
-        spent: budgetSpent,
-        remaining: budgetTotal - budgetSpent,
-        percentage: budgetTotal > 0 ? (budgetSpent / budgetTotal) * 100 : 0,
-      },
-      category_spending: Array.from(categorySpend.entries())
-        .map(([name, amount]) => ({ name, amount }))
-        .sort((a, b) => b.amount - a.amount),
-      recent_transactions: (transactions || [])
-        .filter((tx) => tx.date >= start && tx.date < nextMonth)
-        .slice(0, 6),
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+      const monthDate =
+        `${input.month}-01`;
+
+
+      const {
+        data,
+        error,
+      } =
+        await req.supabase
+          .from('budgets')
+          .upsert(
+            {
+              user_id:
+                req.user.id,
+
+              month:
+                monthDate,
+
+              category_id:
+                input.category_id,
+
+              amount:
+                input.amount,
+            },
+
+            {
+              onConflict:
+                'user_id,month,category_id',
+            },
+          )
+          .select('*')
+          .single();
+
+      if (error) {
+        throw error;
+      }
+
+      res
+        .status(201)
+        .json(data);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+
+router.delete(
+  '/:id',
+  async (
+    req,
+    res,
+    next,
+  ) => {
+    try {
+      const {
+        error,
+      } =
+        await req.supabase
+          .from('budgets')
+          .delete()
+          .eq(
+            'id',
+            req.params.id,
+          );
+
+      if (error) {
+        throw error;
+      }
+
+      res
+        .status(204)
+        .end();
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 
 export default router;
