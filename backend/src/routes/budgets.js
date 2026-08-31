@@ -1,790 +1,622 @@
 import { Router } from 'express';
 
 import {
-  reimbursementSchema,
-  transactionSchema,
+  budgetSchema,
 } from '../utils/validation.js';
 
-const router = Router();
+import {
+  parseMonth,
+} from '../utils/dates.js';
+
+import {
+  asNumber,
+} from '../utils/money.js';
 
 
+const router =
+  Router();
+
+
+/*
+ * ==========================================================
+ * GET BUDGETS
+ * ==========================================================
+ *
+ * GET /api/budgets?month=2026-08
+ *
+ * Returns each category budget together with:
+ *
+ * - budget amount
+ * - personal spending
+ * - remaining budget
+ * - usage percentage
+ *
+ *
+ * IMPORTANT ACCOUNTING RULE:
+ *
+ * Budget usage represents only the user's own expense.
+ *
+ * Therefore:
+ *
+ * Personal expense
+ *      -> counted
+ *
+ * Fully reimbursable expense
+ *      -> NOT counted
+ *
+ * Reimbursable part of split expense
+ *      -> NOT counted
+ *
+ * Personal part of split expense
+ *      -> counted
+ *
+ * Reimbursement receipt
+ *      -> NOT counted
+ *
+ * Transfer
+ *      -> NOT counted
+ */
 router.get(
   '/',
+
   async (
     req,
     res,
     next,
   ) => {
     try {
-      const {
-        month,
-        type,
-        category,
-        account,
-        q,
-      } = req.query;
 
-      let query =
-        req.supabase
+      /*
+       * Use requested month.
+       *
+       * If no month is supplied,
+       * use the server's current month.
+       */
+      const month =
+        req.query.month ||
+        new Date()
+          .toISOString()
+          .slice(
+            0,
+            7,
+          );
+
+
+      /*
+       * Example:
+       *
+       * month:
+       * 2026-08
+       *
+       * start:
+       * 2026-08-01
+       *
+       * nextMonth:
+       * 2026-09-01
+       */
+      const {
+        start,
+        next: nextMonth,
+      } =
+        parseMonth(
+          month,
+        );
+
+
+      /*
+       * ======================================================
+       * LOAD MONTHLY BUDGETS
+       * ======================================================
+       */
+      const {
+        data: budgets,
+        error: budgetError,
+      } =
+        await req.supabase
+
           .from(
-            'transactions',
+            'budgets',
           )
+
           .select(`
             *,
+
             category:categories(
               id,
               name,
-              type,
-              icon
-            ),
-            source_account:accounts!transactions_source_account_id_fkey(
-              id,
-              name
-            ),
-            destination_account:accounts!transactions_destination_account_id_fkey(
-              id,
-              name
+              icon,
+              type
             )
           `)
-          .order(
-            'date',
-            {
-              ascending: false,
-            },
+
+          .eq(
+            'user_id',
+            req.user.id,
           )
+
+          .eq(
+            'month',
+            start,
+          )
+
           .order(
             'created_at',
             {
-              ascending: false,
+              ascending:
+                true,
             },
           );
 
 
       if (
-        month &&
-        /^\d{4}-\d{2}$/.test(
-          month,
-        )
+        budgetError
       ) {
-        const [
-          year,
-          monthNumber,
-        ] =
-          month
-            .split('-')
-            .map(Number);
-
-        const start =
-          `${month}-01`;
-
-        const next =
-          new Date(
-            Date.UTC(
-              year,
-              monthNumber,
-              1,
-            ),
-          )
-            .toISOString()
-            .slice(0, 10);
-
-        query =
-          query
-            .gte(
-              'date',
-              start,
-            )
-            .lt(
-              'date',
-              next,
-            );
+        throw budgetError;
       }
 
 
       /*
-       * Reimbursement receipts are stored
-       * internally as income-side account
-       * movements, but they are not normal
-       * income.
+       * ======================================================
+       * LOAD EXPENSES FOR SELECTED MONTH
+       * ======================================================
+       *
+       * We retrieve:
+       *
+       * amount
+       * category_id
+       * is_reimbursable
+       *
+       * is_reimbursable is required so that
+       * someone else's portion does not reduce
+       * the user's personal budget.
        */
-      if (
-        type ===
-        'reimbursement'
-      ) {
-        query =
-          query.not(
-            'reimburses_transaction_id',
-            'is',
-            null,
-          );
-      } else if (
-        type === 'income'
-      ) {
-        query =
-          query
-            .eq(
-              'type',
-              'income',
-            )
-            .is(
-              'reimburses_transaction_id',
-              null,
-            );
-      } else if (type) {
-        query =
-          query.eq(
-            'type',
-            type,
-          );
-      }
-
-
-      if (category) {
-        query =
-          query.eq(
-            'category_id',
-            category,
-          );
-      }
-
-
-      if (account) {
-        query =
-          query.or(
-            `source_account_id.eq.${account},destination_account_id.eq.${account}`,
-          );
-      }
-
-
-      if (q) {
-        query =
-          query.ilike(
-            'description',
-            `%${String(q).slice(
-              0,
-              80,
-            )}%`,
-          );
-      }
-
-
       const {
-        data,
-        error,
-      } = await query;
-
-      if (error) {
-        throw error;
-      }
-
-      res.json(
-        data || [],
-      );
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-
-router.post(
-  '/',
-  async (
-    req,
-    res,
-    next,
-  ) => {
-    try {
-      const input =
-        transactionSchema
-          .parse(req.body);
-
-      const isReimbursable =
-        input.type ===
-          'expense' &&
-        input.is_reimbursable ===
-          true;
-
-      const payload = {
-        ...input,
-
-        user_id:
-          req.user.id,
-
-        category_id:
-          input.type ===
-          'transfer'
-            ? null
-            : input.category_id ||
-              null,
-
-        source_account_id:
-          input.type ===
-          'income'
-            ? null
-            : input.source_account_id ||
-              null,
-
-        destination_account_id:
-          input.type ===
-          'expense'
-            ? null
-            : input.destination_account_id ||
-              null,
-
-        is_reimbursable:
-          isReimbursable,
-
-        reimbursement_status:
-          isReimbursable
-            ? 'pending'
-            : 'none',
-
-        reimbursed_by:
-          isReimbursable
-            ? input.reimbursed_by ||
-              null
-            : null,
-
-        reimbursed_at:
-          null,
-
-        reimburses_transaction_id:
-          null,
-      };
-
-
-      const {
-        data,
-        error,
+        data: expenses,
+        error: expenseError,
       } =
         await req.supabase
+
           .from(
             'transactions',
           )
-          .insert(payload)
-          .select('*')
-          .single();
 
-      if (error) {
-        throw error;
-      }
-
-      res
-        .status(201)
-        .json(data);
-    } catch (error) {
-      next(error);
-    }
-  },
-);
-
-
-router.put(
-  '/:id',
-  async (
-    req,
-    res,
-    next,
-  ) => {
-    try {
-      const {
-        data: current,
-        error:
-          currentError,
-      } =
-        await req.supabase
-          .from(
-            'transactions',
-          )
           .select(`
-            id,
-            type,
-            reimbursement_status,
-            reimburses_transaction_id
+            amount,
+            category_id,
+            is_reimbursable
           `)
+
           .eq(
-            'id',
-            req.params.id,
+            'user_id',
+            req.user.id,
           )
-          .maybeSingle();
 
-      if (currentError) {
-        throw currentError;
-      }
+          .eq(
+            'type',
+            'expense',
+          )
 
-      if (!current) {
-        return res
-          .status(404)
-          .json({
-            error:
-              'Transaction not found.',
-          });
-      }
+          .gte(
+            'date',
+            start,
+          )
 
-
-      if (
-        current
-          .reimburses_transaction_id
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'Reimbursement receipts cannot be edited directly.',
-          });
-      }
+          .lt(
+            'date',
+            nextMonth,
+          );
 
 
       if (
-        current
-          .reimbursement_status ===
-        'reimbursed'
+        expenseError
       ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'A reimbursed expense is locked because it already has a repayment record. Delete and recreate it if a correction is required.',
-          });
+        throw expenseError;
       }
 
 
-      const input =
-        transactionSchema
-          .parse(req.body);
-
-      const isReimbursable =
-        input.type ===
-          'expense' &&
-        input.is_reimbursable ===
-          true;
-
-      const payload = {
-        ...input,
-
-        category_id:
-          input.type ===
-          'transfer'
-            ? null
-            : input.category_id ||
-              null,
-
-        source_account_id:
-          input.type ===
-          'income'
-            ? null
-            : input.source_account_id ||
-              null,
-
-        destination_account_id:
-          input.type ===
-          'expense'
-            ? null
-            : input.destination_account_id ||
-              null,
-
-        is_reimbursable:
-          isReimbursable,
-
-        reimbursement_status:
-          isReimbursable
-            ? 'pending'
-            : 'none',
-
-        reimbursed_by:
-          isReimbursable
-            ? input.reimbursed_by ||
-              null
-            : null,
-
-        reimbursed_at:
-          null,
-
-        reimburses_transaction_id:
-          null,
-      };
+      /*
+       * ======================================================
+       * CALCULATE PERSONAL SPENDING BY CATEGORY
+       * ======================================================
+       */
+      const spentByCategory =
+        new Map();
 
 
-      const {
-        data,
+      for (
+        const transaction of
+        expenses || []
+      ) {
+
+        /*
+         * ----------------------------------------------------
+         * CRITICAL RULE
+         * ----------------------------------------------------
+         *
+         * Reimbursable money belongs to someone else's
+         * responsibility.
+         *
+         * Even if a category was selected, it must NOT
+         * consume the user's personal monthly budget.
+         */
+        if (
+          transaction
+            .is_reimbursable ===
+          true
+        ) {
+          continue;
+        }
+
+
+        /*
+         * Expense transactions should normally
+         * have a category.
+         *
+         * Ignore malformed records safely.
+         */
+        if (
+          !transaction
+            .category_id
+        ) {
+          continue;
+        }
+
+
+        const amount =
+          asNumber(
+            transaction.amount,
+          );
+
+
+        const currentSpent =
+          spentByCategory.get(
+            transaction.category_id,
+          ) ||
+          0;
+
+
+        spentByCategory.set(
+          transaction.category_id,
+
+          currentSpent +
+            amount,
+        );
+      }
+
+
+      /*
+       * ======================================================
+       * BUILD BUDGET RESPONSE
+       * ======================================================
+       */
+      const result =
+        (budgets || [])
+          .map(
+            (
+              budget,
+            ) => {
+
+              const amount =
+                asNumber(
+                  budget.amount,
+                );
+
+
+              /*
+               * spent contains only PERSONAL
+               * expenses.
+               *
+               * Reimbursable expenses have already
+               * been excluded above.
+               */
+              const spent =
+                spentByCategory.get(
+                  budget.category_id,
+                ) ||
+                0;
+
+
+              const remaining =
+                amount -
+                spent;
+
+
+              const percentage =
+                amount > 0
+
+                  ? (
+                      spent /
+                      amount
+                    ) * 100
+
+                  : 0;
+
+
+              return {
+                ...budget,
+
+                /*
+                 * Personal spending only.
+                 */
+                spent,
+
+
+                remaining,
+
+
+                percentage,
+              };
+            },
+          );
+
+
+      return res.json(
+        result,
+      );
+
+    } catch (
+      error
+    ) {
+
+      next(
         error,
-      } =
-        await req.supabase
-          .from(
-            'transactions',
-          )
-          .update(payload)
-          .eq(
-            'id',
-            req.params.id,
-          )
-          .select('*')
-          .single();
+      );
 
-      if (error) {
-        throw error;
-      }
-
-      res.json(data);
-    } catch (error) {
-      next(error);
     }
   },
 );
 
 
 /*
- * Record repayment of a reimbursable
- * expense.
+ * ==========================================================
+ * CREATE / UPDATE BUDGET
+ * ==========================================================
+ *
+ * POST /api/budgets
+ *
+ * Example:
+ *
+ * {
+ *   "month": "2026-08",
+ *   "category_id": "uuid",
+ *   "amount": 2000000
+ * }
+ *
+ *
+ * One category can have only one budget
+ * for a particular month.
+ *
+ * Saving the same category again updates
+ * the existing budget.
  */
 router.post(
-  '/:id/reimburse',
+  '/',
+
   async (
     req,
     res,
     next,
   ) => {
-    let receiptId =
-      null;
-
     try {
+
+      /*
+       * Validate:
+       *
+       * - month
+       * - category UUID
+       * - amount
+       */
       const input =
-        reimbursementSchema
-          .parse(req.body);
-
-
-      const {
-        data:
-          original,
-        error:
-          originalError,
-      } =
-        await req.supabase
-          .from(
-            'transactions',
-          )
-          .select(`
-            id,
-            type,
-            date,
-            description,
-            amount,
-            source_account_id,
-            is_reimbursable,
-            reimbursement_status,
-            reimbursed_by
-          `)
-          .eq(
-            'id',
-            req.params.id,
-          )
-          .maybeSingle();
-
-      if (originalError) {
-        throw originalError;
-      }
-
-
-      if (!original) {
-        return res
-          .status(404)
-          .json({
-            error:
-              'Transaction not found.',
-          });
-      }
-
-
-      if (
-        original.type !==
-          'expense' ||
-        !original.is_reimbursable
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'Only reimbursable expenses can be marked as reimbursed.',
-          });
-      }
-
-
-      if (
-        original
-          .reimbursement_status ===
-        'reimbursed'
-      ) {
-        return res
-          .status(409)
-          .json({
-            error:
-              'This expense has already been reimbursed.',
-          });
-      }
-
-
-      if (
-        input.date <
-        original.date
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'Reimbursement date cannot be earlier than the expense date.',
-          });
-      }
-
-
-      const {
-        data:
-          destinationAccount,
-        error:
-          accountError,
-      } =
-        await req.supabase
-          .from(
-            'accounts',
-          )
-          .select(
-            'id,name',
-          )
-          .eq(
-            'id',
-            input
-              .destination_account_id,
-          )
-          .maybeSingle();
-
-      if (accountError) {
-        throw accountError;
-      }
-
-
-      if (
-        !destinationAccount
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'Destination account was not found.',
-          });
-      }
+        budgetSchema.parse(
+          req.body,
+        );
 
 
       /*
-       * This row increases the physical
-       * account balance, but dashboard
-       * logic excludes it from income.
+       * Database stores budget month
+       * as the first day of the month.
+       *
+       * Example:
+       *
+       * 2026-08
+       *
+       * becomes:
+       *
+       * 2026-08-01
+       */
+      const monthDate =
+        `${input.month}-01`;
+
+
+      /*
+       * Upsert means:
+       *
+       * create if no budget exists
+       *
+       * OR
+       *
+       * update if the same:
+       *
+       * user_id
+       * + month
+       * + category_id
+       *
+       * already exists.
        */
       const {
-        data:
-          receipt,
-        error:
-          receiptError,
+        data,
+        error,
       } =
         await req.supabase
+
           .from(
-            'transactions',
+            'budgets',
           )
-          .insert({
-            user_id:
-              req.user.id,
 
-            type:
-              'income',
+          .upsert(
+            {
+              user_id:
+                req.user.id,
 
-            date:
-              input.date,
+              month:
+                monthDate,
 
-            description:
-              `Reimbursement: ${original.description}`,
+              category_id:
+                input.category_id,
 
-            amount:
-              original.amount,
+              amount:
+                input.amount,
+            },
 
-            category_id:
-              null,
+            {
+              onConflict:
+                'user_id,month,category_id',
+            },
+          )
 
-            source_account_id:
-              null,
+          .select(`
+            *,
 
-            destination_account_id:
-              input
-                .destination_account_id,
+            category:categories(
+              id,
+              name,
+              icon,
+              type
+            )
+          `)
 
-            notes:
-              original
-                .reimbursed_by
-                ? `Repaid by ${original.reimbursed_by}`
-                : 'Repayment of reimbursable expense',
-
-            is_reimbursable:
-              false,
-
-            reimbursement_status:
-              'none',
-
-            reimbursed_by:
-              null,
-
-            reimbursed_at:
-              null,
-
-            reimburses_transaction_id:
-              original.id,
-          })
-          .select('*')
           .single();
 
-      if (receiptError) {
-        throw receiptError;
-      }
 
-      receiptId =
-        receipt.id;
-
-
-      const {
-        data:
-          updatedExpense,
-        error:
-          updateError,
-      } =
-        await req.supabase
-          .from(
-            'transactions',
-          )
-          .update({
-            reimbursement_status:
-              'reimbursed',
-
-            reimbursed_at:
-              input.date,
-          })
-          .eq(
-            'id',
-            original.id,
-          )
-          .select('*')
-          .single();
-
-      if (updateError) {
-        /*
-         * Best-effort cleanup so a failed
-         * second step does not leave an
-         * orphan reimbursement receipt.
-         */
-        await req.supabase
-          .from(
-            'transactions',
-          )
-          .delete()
-          .eq(
-            'id',
-            receiptId,
-          );
-
-        throw updateError;
+      if (
+        error
+      ) {
+        throw error;
       }
 
 
-      return res.json({
-        ok: true,
+      return res
+        .status(
+          201,
+        )
+        .json(
+          data,
+        );
 
-        expense:
-          updatedExpense,
+    } catch (
+      error
+    ) {
 
-        reimbursement:
-          receipt,
-      });
-    } catch (error) {
-      next(error);
+      next(
+        error,
+      );
+
     }
   },
 );
 
 
+/*
+ * ==========================================================
+ * DELETE BUDGET
+ * ==========================================================
+ *
+ * DELETE /api/budgets/:id
+ *
+ * This deletes only the budget.
+ *
+ * It does NOT delete:
+ *
+ * - category
+ * - expense
+ * - transaction
+ * - reimbursement
+ */
 router.delete(
   '/:id',
+
   async (
     req,
     res,
     next,
   ) => {
     try {
-      const {
-        data:
-          transaction,
-        error:
-          readError,
-      } =
-        await req.supabase
-          .from(
-            'transactions',
-          )
-          .select(`
-            id,
-            reimburses_transaction_id
-          `)
-          .eq(
-            'id',
-            req.params.id,
-          )
-          .maybeSingle();
-
-      if (readError) {
-        throw readError;
-      }
-
-
-      if (!transaction) {
-        return res
-          .status(404)
-          .json({
-            error:
-              'Transaction not found.',
-          });
-      }
-
-
-      if (
-        transaction
-          .reimburses_transaction_id
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'A reimbursement receipt cannot be deleted directly. Delete the original reimbursable expense instead.',
-          });
-      }
-
 
       const {
+        data,
         error,
       } =
         await req.supabase
+
           .from(
-            'transactions',
+            'budgets',
           )
+
           .delete()
+
           .eq(
             'id',
             req.params.id,
-          );
+          )
 
-      if (error) {
+          .eq(
+            'user_id',
+            req.user.id,
+          )
+
+          .select(
+            'id',
+          )
+
+          .maybeSingle();
+
+
+      if (
+        error
+      ) {
         throw error;
       }
 
-      res
-        .status(204)
+
+      /*
+       * Budget either:
+       *
+       * - does not exist
+       *
+       * OR
+       *
+       * - belongs to another user.
+       */
+      if (
+        !data
+      ) {
+
+        return res
+          .status(
+            404,
+          )
+          .json({
+            error:
+              'Budget not found.',
+          });
+
+      }
+
+
+      return res
+        .status(
+          204,
+        )
         .end();
-    } catch (error) {
-      next(error);
+
+    } catch (
+      error
+    ) {
+
+      next(
+        error,
+      );
+
     }
   },
 );

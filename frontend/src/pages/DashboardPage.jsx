@@ -33,20 +33,24 @@ export default function DashboardPage() {
     currentMonth(),
   );
 
+
   const [
     data,
     setData,
   ] = useState(null);
+
 
   const [
     currency,
     setCurrency,
   ] = useState('IDR');
 
+
   const [
     loading,
     setLoading,
   ] = useState(true);
+
 
   const [
     error,
@@ -54,29 +58,37 @@ export default function DashboardPage() {
   ] = useState('');
 
 
+  /*
+   * ==========================================================
+   * LOAD DASHBOARD
+   * ==========================================================
+   */
   async function load() {
     setLoading(true);
+
     setError('');
+
 
     try {
       const [
         dashboard,
         profile,
-      ] = await Promise.all([
-        api(
-          `/dashboard?month=${month}`,
-        ),
+      ] =
+        await Promise.all([
+          api(
+            `/dashboard?month=${month}`,
+          ),
 
-        api('/profile'),
-      ]);
+          api(
+            '/profile',
+          ),
+        ]);
 
-      /*
-       * Do not assume every property
-       * always exists in the API response.
-       */
+
       setData(
         dashboard || {},
       );
+
 
       setCurrency(
         profile?.currency ||
@@ -88,6 +100,7 @@ export default function DashboardPage() {
         err,
       );
 
+
       setError(
         err.message ||
           'Unable to load the dashboard.',
@@ -98,20 +111,23 @@ export default function DashboardPage() {
   }
 
 
-  useEffect(() => {
-    load();
-  }, [month]);
+  /*
+   * Reload whenever the selected
+   * month changes.
+   */
+  useEffect(
+    () => {
+      load();
+    },
+    [month],
+  );
 
 
   /*
-   * ----------------------------------------------------------
+   * ==========================================================
    * SAFE API NORMALIZATION
-   * ----------------------------------------------------------
-   *
-   * These defaults prevent the Dashboard from crashing if
-   * an older backend or incomplete API response is returned.
+   * ==========================================================
    */
-
   const budgetStatus = {
     total:
       Number(
@@ -165,6 +181,9 @@ export default function DashboardPage() {
       : [];
 
 
+  /*
+   * Used to normalize category spending bars.
+   */
   const maxSpend =
     useMemo(
       () =>
@@ -184,6 +203,11 @@ export default function DashboardPage() {
     );
 
 
+  /*
+   * ==========================================================
+   * LOADING
+   * ==========================================================
+   */
   if (loading) {
     return (
       <div className="panel loading-panel">
@@ -195,6 +219,11 @@ export default function DashboardPage() {
   }
 
 
+  /*
+   * ==========================================================
+   * ERROR
+   * ==========================================================
+   */
   if (error) {
     return (
       <div className="alert error">
@@ -213,6 +242,11 @@ export default function DashboardPage() {
   }
 
 
+  /*
+   * ==========================================================
+   * NORMALIZED VALUES
+   * ==========================================================
+   */
   const budgetPercentage =
     Math.max(
       0,
@@ -268,10 +302,12 @@ export default function DashboardPage() {
     'Current Balance';
 
 
+
   return (
     <div className="page-stack animate-in">
 
       <div className="page-toolbar">
+
         <div>
           <h2>
             Monthly overview
@@ -288,6 +324,7 @@ export default function DashboardPage() {
 
 
         <label className="compact-field">
+
           <span>
             Month
           </span>
@@ -295,15 +332,18 @@ export default function DashboardPage() {
           <input
             type="month"
             value={month}
-            onChange={(event) =>
-              setMonth(
-                event
-                  .target
-                  .value,
-              )
+            onChange={
+              (event) =>
+                setMonth(
+                  event
+                    .target
+                    .value,
+                )
             }
           />
+
         </label>
+
       </div>
 
 
@@ -397,6 +437,7 @@ export default function DashboardPage() {
         <article className="panel budget-panel">
 
           <div className="panel-heading">
+
             <div>
               <span className="eyebrow">
                 Budget status
@@ -407,18 +448,22 @@ export default function DashboardPage() {
               </h3>
             </div>
 
+
             <strong>
               {Math.round(
                 budgetPercentage,
               )}
               %
             </strong>
+
           </div>
 
 
           {budgetStatus.total > 0 ? (
             <>
+
               <div className="big-progress">
+
                 <span
                   style={{
                     width:
@@ -428,6 +473,7 @@ export default function DashboardPage() {
                       )}%`,
                   }}
                 />
+
               </div>
 
 
@@ -476,10 +522,6 @@ export default function DashboardPage() {
 
               </div>
 
-
-              <div className="alert warning">
-                Reimbursable expenses are excluded from budget usage.
-              </div>
             </>
           ) : (
             <EmptyState
@@ -494,6 +536,7 @@ export default function DashboardPage() {
         <article className="panel">
 
           <div className="panel-heading">
+
             <div>
               <span className="eyebrow">
                 Spending
@@ -503,6 +546,7 @@ export default function DashboardPage() {
                 Expenses by category
               </h3>
             </div>
+
           </div>
 
 
@@ -524,11 +568,13 @@ export default function DashboardPage() {
                     >
 
                       <div className="bar-label">
+
                         <span>
                           {
                             item.name
                           }
                         </span>
+
 
                         <strong>
                           {formatMoney(
@@ -539,10 +585,12 @@ export default function DashboardPage() {
                             currency,
                           )}
                         </strong>
+
                       </div>
 
 
                       <div className="bar-track">
+
                         <span
                           style={{
                             width:
@@ -555,6 +603,7 @@ export default function DashboardPage() {
                               ) * 100}%`,
                           }}
                         />
+
                       </div>
 
                     </div>
@@ -577,6 +626,7 @@ export default function DashboardPage() {
       <section className="panel">
 
         <div className="panel-heading">
+
           <div>
             <span className="eyebrow">
               Activity
@@ -586,6 +636,7 @@ export default function DashboardPage() {
               Recent transactions
             </h3>
           </div>
+
         </div>
 
 
@@ -594,34 +645,113 @@ export default function DashboardPage() {
 
             {recentTransactions.map(
               (tx) => {
-                const isReceipt =
+
+                /*
+                 * ==================================================
+                 * REIMBURSEMENT RECEIPT DETECTION
+                 * ==================================================
+                 *
+                 * IMPORTANT FIX:
+                 *
+                 * OLD:
+                 *
+                 * tx.reimburses_transaction_id
+                 *
+                 * NEW:
+                 *
+                 * tx.reimbursement_claim_id
+                 *
+                 *
+                 * Every reimbursement receipt created by the new
+                 * reimbursement system references the specific
+                 * reimbursement_claim_id.
+                 *
+                 * Therefore this is the authoritative field used
+                 * to identify reimbursement income.
+                 */
+                const isReimbursementReceipt =
                   Boolean(
                     tx
-                      .reimburses_transaction_id,
+                      .reimbursement_claim_id,
                   );
 
 
+                /*
+                 * Default transaction detail.
+                 */
                 let detail =
                   tx.category
                     ?.name ||
-                  'Transfer';
+                  (
+                    tx.type ===
+                    'transfer'
+                      ? 'Transfer'
+                      : tx.type ===
+                          'income'
+                        ? 'Income'
+                        : 'Expense'
+                  );
 
 
-                if (isReceipt) {
+                /*
+                 * ==================================================
+                 * REIMBURSEMENT RECEIPT
+                 * ==================================================
+                 *
+                 * Do not display it as:
+                 *
+                 * Transfer
+                 * Income
+                 * Uncategorized
+                 *
+                 * It is explicitly a reimbursement.
+                 */
+                if (
+                  isReimbursementReceipt
+                ) {
+
                   detail =
                     'Reimbursement';
+
                 } else if (
-                  tx.is_reimbursable
+                  tx
+                    .is_reimbursable
                 ) {
+
+                  /*
+                   * =================================================
+                   * REIMBURSABLE EXPENSE
+                   * =================================================
+                   */
+                  const reimbursementLabel =
+                    tx
+                      .reimbursement_status ===
+                    'reimbursed'
+                      ? 'Reimbursed'
+                      : 'Awaiting reimbursement';
+
+
                   detail =
-                    `${detail} · ${
-                      tx
-                        .reimbursement_status ===
-                      'reimbursed'
-                        ? 'Reimbursed'
-                        : 'Awaiting reimbursement'
-                    }`;
+                    `${detail} · ${reimbursementLabel}`;
                 }
+
+
+                /*
+                 * ==================================================
+                 * MONEY SIGN
+                 * ==================================================
+                 *
+                 * Reimbursement receipts are income-side account
+                 * movements, so they display a positive sign.
+                 */
+                const amountPrefix =
+                  tx.type ===
+                  'expense'
+                    ? '-'
+                    : tx.type ===
+                        'income'
+                      ? '+'
+                      : '';
 
 
                 return (
@@ -631,16 +761,22 @@ export default function DashboardPage() {
                   >
 
                     <div
-                      className={`transaction-dot ${tx.type}`}
+                      className={`transaction-dot ${
+                        isReimbursementReceipt
+                          ? 'income'
+                          : tx.type
+                      }`}
                     />
 
 
                     <div className="transaction-main">
+
                       <strong>
                         {
                           tx.description
                         }
                       </strong>
+
 
                       <span>
                         {formatDate(
@@ -651,19 +787,20 @@ export default function DashboardPage() {
 
                         {detail}
                       </span>
+
                     </div>
 
 
                     <strong
-                      className={`money-value ${tx.type}`}
+                      className={`money-value ${
+                        isReimbursementReceipt
+                          ? 'income'
+                          : tx.type
+                      }`}
                     >
-                      {tx.type ===
-                      'expense'
-                        ? '-'
-                        : tx.type ===
-                            'income'
-                          ? '+'
-                          : ''}
+
+                      {amountPrefix}
+
 
                       {formatMoney(
                         Number(
@@ -672,6 +809,7 @@ export default function DashboardPage() {
                         ),
                         currency,
                       )}
+
                     </strong>
 
                   </div>

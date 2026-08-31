@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "check": "node --check src/server.js"
+    "reminders:run": "node src/jobs/runReminders.js",
+    "check": "node --check src/server.js && node --check src/services/reminderWorker.js && node --check src/jobs/runReminders.js"
   },
   "dependencies": {
     "@supabase/server": "^1.4.1",
@@ -16,7 +17,6 @@
     "express": "^4.21.0",
     "express-rate-limit": "^7.4.0",
     "helmet": "^8.0.0",
-    "node-cron": "^4.6.0",
     "nodemailer": "^9.0.5",
     "zod": "^3.23.8"
   }

@@ -1,17 +1,37 @@
-import { Router } from 'express';
+import {
+  Router,
+} from 'express';
+
 
 import {
   reminderSchema,
 } from '../utils/validation.js';
 
+
 import {
   sendTransactionReminder,
 } from '../services/email.js';
 
-const router = Router();
 
+import {
+  resolveReminderRecipient,
+} from '../services/reminderRecipient.js';
+
+
+const router =
+  Router();
+
+
+/*
+ * ==========================================================
+ * GET REMINDER PREFERENCES
+ * ==========================================================
+ *
+ * GET /api/reminders
+ */
 router.get(
   '/',
+
   async (
     req,
     res,
@@ -35,27 +55,48 @@ router.get(
           )
           .maybeSingle();
 
+
       if (error) {
         throw error;
       }
 
+
+      /*
+       * Return defaults if the reminder
+       * preference row does not exist.
+       */
       res.json(
         data || {
           enabled: false,
+
           reminder_time:
             '20:00:00',
-          timezone: 'UTC',
-          last_sent_date: null,
+
+          timezone:
+            'UTC',
+
+          last_sent_date:
+            null,
         },
       );
+
     } catch (error) {
       next(error);
     }
   },
 );
 
+
+/*
+ * ==========================================================
+ * UPDATE REMINDER PREFERENCES
+ * ==========================================================
+ *
+ * PUT /api/reminders
+ */
 router.put(
   '/',
+
   async (
     req,
     res,
@@ -66,6 +107,7 @@ router.put(
         reminderSchema.parse(
           req.body,
         );
+
 
       const {
         data,
@@ -91,19 +133,35 @@ router.put(
           .select('*')
           .single();
 
+
       if (error) {
         throw error;
       }
 
+
       res.json(data);
+
     } catch (error) {
       next(error);
     }
   },
 );
 
+
+/*
+ * ==========================================================
+ * TEST REMINDER EMAIL
+ * ==========================================================
+ *
+ * POST /api/reminders/test
+ *
+ * This endpoint now uses exactly the
+ * same recipient resolver used by the
+ * automatic reminder scheduler.
+ */
 router.post(
   '/test',
+
   async (
     req,
     res,
@@ -111,43 +169,33 @@ router.post(
   ) => {
     try {
       /*
-       * Use maybeSingle here so test-email
-       * does not fail solely because the
-       * profile row is absent.
+       * Resolve recipient.
+       *
+       * Priority:
+       *
+       * 1. profiles.email
+       * 2. Supabase Auth user email
+       *
+       * req.user is passed because the
+       * authenticated route already has
+       * the Auth user available.
        */
       const {
-        data: profile,
-        error,
+        email,
+        name,
+        emailSource,
       } =
-        await req.supabase
-          .from('profiles')
-          .select(
-            'email, full_name',
-          )
-          .eq(
-            'id',
+        await resolveReminderRecipient({
+          userId:
             req.user.id,
-          )
-          .maybeSingle();
 
-      if (error) {
-        throw error;
-      }
+          profileClient:
+            req.supabase,
 
-      /*
-       * Prefer the profile email, but
-       * fall back to the authenticated
-       * Supabase user's email.
-       */
-      const email =
-        profile?.email ||
-        req.user?.email;
+          authUser:
+            req.user,
+        });
 
-      const name =
-        profile?.full_name ||
-        req.user?.user_metadata
-          ?.full_name ||
-        'there';
 
       if (!email) {
         return res
@@ -158,19 +206,41 @@ router.post(
           });
       }
 
+
+      /*
+       * Send exactly the same reminder
+       * email used by the scheduler.
+       */
       await sendTransactionReminder({
         email,
         name,
       });
 
+
       return res.json({
-        ok: true,
-        sent_to: email,
+        ok:
+          true,
+
+        sent_to:
+          email,
+
+        /*
+         * Helpful while debugging.
+         *
+         * Possible values:
+         *
+         * profile
+         * auth
+         */
+        email_source:
+          emailSource,
       });
+
     } catch (error) {
       next(error);
     }
   },
 );
+
 
 export default router;

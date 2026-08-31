@@ -1,107 +1,634 @@
 # PinkLedger Money Tracker
 
-PinkLedger is a full-stack personal money tracking starter application built with the requested stack:
+PinkLedger is a full-stack personal money tracking application.
+
+Technology stack:
 
 - Frontend: React + Vite
 - Backend: Node.js + Express.js
-- Database and authentication: Supabase
+- Database: PostgreSQL through Supabase
+- Authentication: Supabase Auth
 - Email: Nodemailer
-- Scheduler: node-cron
+- Scheduled reminder processing: standalone reminder worker executed by an external cron service
 
-The interface uses a pink-and-white visual system with responsive layouts and subtle animations. It supports income, expenses, transfers, accounts, monthly category budgets, dashboard summaries, CSV export, categories, authentication, and optional daily transaction reminder emails.
+PinkLedger supports income, expenses, transfers, accounts, monthly category budgets, reimbursements, split expenses, dashboard summaries, CSV export, categories, authentication, and optional daily transaction reminder emails.
 
-## 1. Features
+---
 
-### Authentication
-- Email/password sign-up and sign-in with Supabase Auth.
-- A private profile, account set, transaction history, categories, budgets, and reminder preference per user.
-- Supabase Row Level Security policies isolate each user's data.
+# 1. Features
 
-### Transactions
-- Transaction types: Income, Expense, Transfer.
-- Fields: date, description, category, source account, destination account, amount, notes.
-- Dynamic form fields based on transaction type.
-- Edit and delete transactions.
-- Search and filters by month, type, and account.
-- CSV export.
-- Transfers do not count as income or expenses.
+## Authentication
 
-### Accounts
-- Cash, bank, e-wallet, savings, credit card, and other account types.
-- Opening balance and opening date.
-- Current balance calculated from opening balance plus transaction history.
-- Account archiving preserves historical data.
+- Email and password sign-up.
+- Email and password sign-in.
+- Supabase Auth.
+- Private user profiles.
+- Supabase Row Level Security.
+- Starter categories are created automatically for new users.
+- Reminder preferences are created automatically for new users.
 
-### Budgets
-- Monthly budgets by expense category.
-- Actual spending, remaining budget, utilization percentage, and status labels.
-- Upsert behavior means saving the same category and month updates its budget.
+---
 
-### Dashboard
-- Opening Balance.
-- Current Balance for the current month, or Period Closing Balance for historical months.
-- Total Income.
-- Total Expenses.
-- Net Cash Flow.
-- Budget Status.
-- Expense-by-category visualization.
-- Recent transactions.
+## Accounts
 
-### Daily email reminder
-- User can enable or disable reminders.
-- User chooses local reminder time and IANA timezone.
-- Backend checks every five minutes.
-- After the selected reminder time, it checks whether the user already has a transaction dated for that local day.
-- If at least one transaction exists, no email is sent.
-- If no transaction exists, one email reminder is sent and the date is marked handled to prevent duplicates.
-- A "Send test" button is available in Settings.
+Supported account types:
 
-## 2. Project structure
+- Cash
+- Bank
+- E-wallet
+- Savings
+- Credit card
+- Other
+
+Each account contains:
+
+- Account name
+- Account type
+- Opening balance
+- Opening date
+- Currency
+- Active/archive status
+
+Current account balance is calculated from:
+
+```text
+Opening Balance
++
+Income
+-
+Expenses
++
+Transfers In
+-
+Transfers Out
+```
+
+Account archiving preserves historical transaction data.
+
+---
+
+## Transactions
+
+Supported transaction types:
+
+- Income
+- Expense
+- Transfer
+
+Transaction fields include:
+
+- Date
+- Description
+- Category
+- Source account
+- Destination account
+- Amount
+- Notes
+
+Features include:
+
+- Create transaction
+- Edit transaction
+- Delete transaction
+- Search transactions
+- Filter by month
+- Filter by transaction type
+- Filter by account
+- CSV export
+
+Transfers do not count as income or expenses.
+
+---
+
+## Reimbursements
+
+Expenses can optionally be marked as reimbursable.
+
+PinkLedger supports:
+
+- One reimbursable expense
+- Multiple reimbursement claims for one expense
+- Different people reimbursing portions of an expense
+- Pending reimbursement status
+- Reimbursed status
+- Reimbursement receipt transaction
+- Outstanding reimbursement calculations
+
+Each reimbursement claim stores:
+
+- Person name
+- Amount
+- Status
+- Reimbursement date
+
+The database validates that reimbursement claims cannot exceed the original reimbursable expense.
+
+---
+
+## Split Expenses
+
+One real-world payment can be split into multiple transaction rows.
+
+Related rows share the same:
+
+```text
+transaction_group_id
+```
+
+This allows one payment to be divided between:
+
+- Different expense categories
+- Personal and reimbursable portions
+- Multiple reimbursement claims
+
+---
+
+## Budgets
+
+Monthly budgets are attached to expense categories.
+
+Budget features include:
+
+- Monthly budget amount
+- Actual spending
+- Remaining budget
+- Usage percentage
+- Category-based budget tracking
+
+Saving the same category and month updates the existing budget instead of creating a duplicate.
+
+---
+
+## Dashboard
+
+The dashboard provides:
+
+- Opening Balance
+- Current Balance
+- Period Closing Balance
+- Total Income
+- Total Expenses
+- Net Cash Flow
+- Outstanding Reimbursements
+- Budget Status
+- Expense spending by category
+- Recent transactions
+
+---
+
+## Daily Email Reminder
+
+Users can:
+
+- Enable or disable reminders
+- Select a reminder time
+- Select an IANA timezone
+- Send a test email
+
+Reminder delivery uses a standalone worker.
+
+The worker:
+
+1. Loads enabled reminder preferences.
+2. Calculates the current date and time in each user's timezone.
+3. Checks whether the configured reminder time has arrived.
+4. Checks whether the user already recorded a transaction for that local day.
+5. Sends an email only if no transaction exists.
+6. Updates `last_sent_date` after successful handling.
+7. Exits after completing one reminder scan.
+
+The worker is designed to be launched by an external cron service.
+
+---
+
+# 2. Project Structure
 
 ```text
 pinkledger_money_tracker/
-  frontend/
-    src/
-      components/
-      context/
-      lib/
-      pages/
-  backend/
-    src/
-      middleware/
-      routes/
-      services/
-      utils/
-  supabase/
-    schema.sql
-  README.md
+│
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── context/
+│   │   ├── lib/
+│   │   └── pages/
+│   │
+│   └── vite.config.js
+│
+├── backend/
+│   ├── src/
+│   │   ├── jobs/
+│   │   │   └── runReminders.js
+│   │   │
+│   │   ├── middleware/
+│   │   ├── routes/
+│   │   ├── services/
+│   │   │   ├── email.js
+│   │   │   ├── reminderRecipient.js
+│   │   │   └── reminderWorker.js
+│   │   │
+│   │   ├── utils/
+│   │   ├── config.js
+│   │   ├── server.js
+│   │   └── supabase.js
+│   │
+│   ├── .env.example
+│   └── package.json
+│
+├── supabase/
+│   ├── schema.sql
+│   │
+│   └── migrations/
+│       ├── 20260828_reimbursements.sql
+│       ├── 20260828_multiple_reimbursements.sql
+│       └── 20260828_split_expenses.sql
+│
+└── README.md
 ```
 
-## 3. Prerequisites
+---
+
+# 3. Prerequisites
 
 Install:
 
-- Node.js 20 or newer recommended.
-- npm.
-- A Supabase project.
-- SMTP credentials for an email provider supported by Nodemailer.
+- Node.js 20 or newer
+- npm
+- A Supabase project
+- SMTP credentials supported by Nodemailer
 
-## 4. Supabase setup
+You will also need:
 
-1. Create a new Supabase project.
-2. Open SQL Editor in Supabase.
-3. Run `supabase/schema.sql` in full.
-4. In Supabase Authentication settings, enable Email provider.
-5. Copy these values from the Supabase project settings:
-   - Project URL.
-   - Anon/public key.
-   - Service role key.
+- Supabase Project URL
+- Supabase anon/public key
+- Supabase service role key
 
-Important: the service role key belongs only in the backend `.env`. Never put it in the Vite frontend or commit it to Git.
+---
 
-The SQL schema creates Row Level Security policies for all user-owned tables. It also creates a trigger that initializes a profile, reminder preference, and starter categories when a new Supabase Auth user is created.
+# 4. Database Setup
 
-## 5. Backend setup
+This section is important.
+
+The database consists of:
+
+1. The base schema.
+2. Reimbursement support migration.
+3. Multiple reimbursement claims migration.
+4. Split expense migration.
+
+Running only `supabase/schema.sql` is not enough for the current application.
+
+---
+
+# 4.1 Fresh Supabase Project
+
+For a completely new Supabase project, run the SQL files in the exact order below.
+
+Do not change the order.
+
+## Step 1
+
+Open:
+
+```text
+Supabase Dashboard
+→ SQL Editor
+```
+
+Run:
+
+```text
+supabase/schema.sql
+```
+
+in full.
+
+Wait until it completes successfully.
+
+---
+
+## Step 2
+
+Run:
+
+```text
+supabase/migrations/20260828_reimbursements.sql
+```
+
+in full.
+
+This migration adds reimbursement-related fields to the `transactions` table, including:
+
+```text
+is_reimbursable
+reimbursement_status
+reimbursed_by
+reimbursed_at
+reimburses_transaction_id
+```
+
+It also adds reimbursement validation and database constraints.
+
+---
+
+## Step 3
+
+After Step 2 succeeds, run:
+
+```text
+supabase/migrations/20260828_multiple_reimbursements.sql
+```
+
+in full.
+
+This migration creates:
+
+```text
+reimbursement_claims
+```
+
+and adds:
+
+```text
+reimbursement_claim_id
+```
+
+to transactions.
+
+It also adds:
+
+- Reimbursement claim validation
+- Reimbursement claim ownership rules
+- Reimbursement receipt validation
+- Row Level Security policies
+- Database indexes
+- Updated-at trigger
+
+Do not run this migration before:
+
+```text
+20260828_reimbursements.sql
+```
+
+because it depends on reimbursement fields created by the previous migration.
+
+---
+
+## Step 4
+
+After Step 3 succeeds, run:
+
+```text
+supabase/migrations/20260828_split_expenses.sql
+```
+
+in full.
+
+This migration adds:
+
+```text
+transaction_group_id
+```
+
+to the `transactions` table.
+
+It also creates the index used for grouped split transactions.
+
+---
+
+# 4.2 Required Migration Order
+
+The complete order is:
+
+```text
+1. supabase/schema.sql
+
+2. supabase/migrations/
+   20260828_reimbursements.sql
+
+3. supabase/migrations/
+   20260828_multiple_reimbursements.sql
+
+4. supabase/migrations/
+   20260828_split_expenses.sql
+```
+
+Do not skip a migration.
+
+Do not reverse the order.
+
+---
+
+# 4.3 Existing PinkLedger Database
+
+If your Supabase database already contains application data, do not run `schema.sql` again as an upgrade procedure.
+
+Instead, determine which migrations have already been applied.
+
+Apply only the missing migrations, in this order:
+
+```text
+20260828_reimbursements.sql
+
+20260828_multiple_reimbursements.sql
+
+20260828_split_expenses.sql
+```
+
+Before modifying a production database, create a Supabase backup.
+
+---
+
+# 4.4 Verify Current Database Structure
+
+After completing the migrations, open Supabase SQL Editor and run:
+
+```sql
+select
+  column_name,
+  data_type
+from information_schema.columns
+where
+  table_schema = 'public'
+  and table_name = 'transactions'
+order by ordinal_position;
+```
+
+The `transactions` table should include at least:
+
+```text
+id
+user_id
+type
+date
+description
+amount
+category_id
+source_account_id
+destination_account_id
+notes
+created_at
+updated_at
+
+is_reimbursable
+reimbursement_status
+reimbursed_by
+reimbursed_at
+reimburses_transaction_id
+reimbursement_claim_id
+transaction_group_id
+```
+
+Then verify the reimbursement table:
+
+```sql
+select
+  table_name
+from information_schema.tables
+where
+  table_schema = 'public'
+  and table_name = 'reimbursement_claims';
+```
+
+Expected result:
+
+```text
+reimbursement_claims
+```
+
+You can also verify its columns:
+
+```sql
+select
+  column_name,
+  data_type
+from information_schema.columns
+where
+  table_schema = 'public'
+  and table_name = 'reimbursement_claims'
+order by ordinal_position;
+```
+
+Expected columns include:
+
+```text
+id
+user_id
+transaction_id
+person_name
+amount
+status
+reimbursed_at
+created_at
+updated_at
+```
+
+---
+
+# 4.5 Row Level Security
+
+The database enables Row Level Security for user-owned data.
+
+RLS applies to:
+
+```text
+profiles
+accounts
+categories
+transactions
+budgets
+reminder_preferences
+reimbursement_claims
+```
+
+Users can access only records belonging to their own Supabase Auth user ID.
+
+---
+
+# 4.6 New User Initialization
+
+The base schema creates the following database trigger:
+
+```text
+on_auth_user_created
+```
+
+When a new Supabase Auth user is created, PinkLedger automatically creates:
+
+- Profile
+- Reminder preference
+- Starter income categories
+- Starter expense categories
+
+Starter categories include:
+
+Income:
+
+```text
+Salary
+Freelance
+Other Income
+```
+
+Expenses:
+
+```text
+Food
+Transportation
+Shopping
+Entertainment
+Bills
+Health
+Other Expense
+```
+
+---
+
+# 4.7 Supabase Authentication
+
+In Supabase:
+
+```text
+Authentication
+→ Providers
+→ Email
+```
+
+Enable the Email provider.
+
+Email confirmation can be enabled or disabled depending on your deployment requirements.
+
+---
+
+# 4.8 Supabase API Credentials
+
+Copy the following values from your Supabase project:
+
+```text
+Project URL
+Anon/Public Key
+Service Role Key
+```
+
+Important:
+
+The Service Role Key bypasses Row Level Security.
+
+It must only exist on the backend.
+
+Never place the service role key in:
+
+```text
+frontend/.env
+```
+
+Never expose it to browser JavaScript.
+
+Never commit it to Git.
+
+---
+
+# 5. Backend Setup
 
 From the project root:
 
@@ -111,10 +638,17 @@ cp .env.example .env
 npm install
 ```
 
-Edit `backend/.env`:
+Edit:
+
+```text
+backend/.env
+```
+
+Example:
 
 ```env
 PORT=4000
+
 FRONTEND_URL=http://localhost:5173
 
 SUPABASE_URL=https://YOUR_PROJECT.supabase.co
@@ -124,11 +658,11 @@ SUPABASE_SERVICE_ROLE_KEY=YOUR_SUPABASE_SERVICE_ROLE_KEY
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_SECURE=false
+
 SMTP_USER=your-smtp-username
 SMTP_PASS=your-smtp-password
-EMAIL_FROM="PinkLedger <no-reply@example.com>"
 
-DISABLE_REMINDER_CRON=false
+EMAIL_FROM="PinkLedger <no-reply@example.com>"
 ```
 
 Start the backend:
@@ -137,11 +671,25 @@ Start the backend:
 npm run dev
 ```
 
-The API will run at `http://localhost:4000/api` by default.
+The API runs by default at:
 
-## 6. Frontend setup
+```text
+http://localhost:4000/api
+```
 
-Open a second terminal:
+Health check:
+
+```text
+http://localhost:4000/api/health
+```
+
+---
+
+# 6. Frontend Setup
+
+Open another terminal.
+
+Run:
 
 ```bash
 cd frontend
@@ -149,11 +697,19 @@ cp .env.example .env
 npm install
 ```
 
-Edit `frontend/.env`:
+Edit:
+
+```text
+frontend/.env
+```
+
+Example:
 
 ```env
 VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+
 VITE_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
+
 VITE_API_URL=http://localhost:4000/api
 ```
 
@@ -163,147 +719,605 @@ Start Vite:
 npm run dev
 ```
 
-Open the local URL printed by Vite, normally `http://localhost:5173`.
-
-## 7. First-use workflow
-
-1. Create an account on the PinkLedger sign-up screen.
-2. If Supabase email confirmation is enabled, confirm the email and sign in.
-3. Create at least one financial account, for example Main Bank.
-4. Add income, expense, or transfer transactions.
-5. Add monthly category budgets.
-6. Open Dashboard and select a reporting month.
-7. Open Settings to enable the daily email reminder.
-8. Use Send test to verify SMTP configuration.
-
-## 8. Transaction accounting rules
-
-Income:
+The local frontend normally runs at:
 
 ```text
-Destination account balance += amount
-Total Income += amount
+http://localhost:5173
 ```
 
-Expense:
+---
+
+# 7. First Use
+
+Recommended workflow:
+
+1. Create a PinkLedger account.
+2. Confirm the email if Supabase email confirmation is enabled.
+3. Sign in.
+4. Create at least one financial account.
+5. Enter its opening balance.
+6. Enter its opening date.
+7. Add income or expense transactions.
+8. Add transfer transactions if required.
+9. Create monthly budgets.
+10. Open Dashboard.
+11. Configure reminder preferences in Settings.
+12. Test SMTP using Send Test.
+
+---
+
+# 8. Transaction Accounting Rules
+
+## Income
 
 ```text
-Source account balance -= amount
-Total Expenses += amount
+Destination Account += Amount
+
+Total Income += Amount
 ```
 
-Transfer:
+---
+
+## Expense
 
 ```text
-Source account balance -= amount
-Destination account balance += amount
-Total Income unchanged
-Total Expenses unchanged
+Source Account -= Amount
+
+Total Expenses += Amount
 ```
 
-Combined balance:
+---
+
+## Transfer
 
 ```text
-Opening balances + income - expenses
+Source Account -= Amount
+
+Destination Account += Amount
 ```
 
-Transfers cancel out when calculating the combined balance across all accounts.
-
-## 9. Opening balance logic
-
-Each account has an opening balance and opening date.
-
-For a selected month, the dashboard opening balance is the sum of qualifying account opening balances plus all income and expense effects before the first day of the selected month. Accounts opened after the selected month starts are not included in that month's opening balance.
-
-## 10. Budget logic
-
-Budgets are attached only to expense categories.
+Transfers do not affect:
 
 ```text
-Remaining = Budget - Actual spending in that category
-Usage % = Actual spending / Budget * 100
+Total Income
+Total Expenses
 ```
 
-Suggested UI statuses used by the frontend:
+When combined across all accounts:
 
-- Below 70%: On track.
-- 70% to 89%: Approaching limit.
-- 90% to 99%: Near limit.
-- 100% or more: Over budget.
+```text
+Transfer Net Effect = 0
+```
 
-Dashboard Budget Status counts spending only for categories that have a budget in the selected month.
+---
 
-## 11. Reminder scheduler and deployment
+# 9. Opening Balance Logic
 
-The reminder scheduler runs inside the Express server process using `node-cron`. For production, deploy the backend to an environment that keeps a Node process running continuously, such as a VM or an always-on application service.
+PinkLedger uses two different Opening Balance rules.
 
-If the backend is deployed to a serverless platform that sleeps or only runs on requests, the in-process cron scheduler will not be reliable. In that situation, move the scheduled invocation to the hosting platform's cron facility or another scheduler and call equivalent reminder logic.
+This behavior is intentional.
 
-Only the backend receives SMTP credentials and the Supabase service role key.
+---
 
-## 12. Security notes
+## First Financial Month
 
-- Supabase RLS is enabled for profiles, accounts, categories, transactions, budgets, and reminder preferences.
-- API requests require a Supabase bearer token.
-- User-facing database operations use a Supabase client carrying that user's JWT, so RLS remains active.
-- The service role key is used only by backend administrative operations such as the reminder scheduler.
-- Transaction and budget triggers verify referenced accounts and categories belong to the same user.
-- Express includes Helmet and rate limiting.
-- Request bodies are validated with Zod.
-- Email HTML escapes the user's display name before insertion.
-- Never commit real `.env` files or SMTP credentials.
+The first financial month is determined from the earliest account opening date.
 
-For a public production deployment, also configure HTTPS, production CORS origins, log monitoring, database backups, and an SMTP provider with appropriate domain authentication.
+Example:
 
-## 13. Currency assumption
+```text
+Account opening date:
+2026-08-31
 
-This starter is designed around one primary currency per user. Account rows contain a currency code for display, but the application does not perform foreign-exchange conversion. For accurate combined balances, use the same currency across accounts unless FX conversion is implemented later.
+Manual opening balance:
+Rp5,000,000
+```
 
-## 14. Production enhancements worth adding later
+For August 2026:
 
-Potential Phase 2 work:
+```text
+Opening Balance = Rp5,000,000
+```
 
-- Recurring transactions.
-- Savings goals.
-- Receipt attachments.
-- Import from CSV or bank exports.
-- Account reconciliation.
-- Multiple-currency conversion with dated FX rates.
-- Advanced reports and downloadable PDF reports.
-- Password reset and richer account-management screens.
-- Automated tests and CI/CD.
-- Centralized job queue for large-scale email delivery.
+The value comes directly from the manual account opening balance entered by the user.
 
-## 15. Development commands
+The Dashboard identifies this as:
 
-Backend:
+```text
+Manual opening balance
+```
+
+---
+
+## Following Months
+
+Beginning with the next month, Opening Balance is calculated using carried-forward accounting logic.
+
+Example:
+
+```text
+August Opening Balance:
+Rp5,000,000
+
+August Expenses:
+Rp1,000,000
+```
+
+August Closing Balance:
+
+```text
+Rp4,000,000
+```
+
+September Opening Balance:
+
+```text
+Rp4,000,000
+```
+
+The Dashboard identifies this as:
+
+```text
+Carried forward from previous activity
+```
+
+---
+
+## Account Opened During a Later Month
+
+Suppose:
+
+```text
+First financial month:
+August 2026
+```
+
+A second account is opened:
+
+```text
+September 15, 2026
+```
+
+That account's manual opening balance does not become part of September's beginning-of-month Opening Balance.
+
+It does affect:
+
+```text
+September Current Balance
+September Period Closing Balance
+```
+
+Then it becomes part of the carried-forward Opening Balance for October.
+
+---
+
+# 10. Reimbursement Accounting
+
+A reimbursable expense still reduces the account balance because the user actually paid the money.
+
+Example:
+
+```text
+Hotel Expense:
+Rp1,000,000
+```
+
+Account effect:
+
+```text
+- Rp1,000,000
+```
+
+If Rp1,000,000 is later reimbursed:
+
+```text
++ Rp1,000,000
+```
+
+through a reimbursement receipt transaction.
+
+Reimbursement receipts are distinguished from normal income.
+
+They should not inflate normal income reporting.
+
+---
+
+# 11. Budget Logic
+
+Budgets can only use expense categories.
+
+Calculation:
+
+```text
+Remaining =
+Budget Amount
+-
+Actual Spending
+```
+
+Usage:
+
+```text
+Usage Percentage =
+Actual Spending
+/
+Budget Amount
+×
+100
+```
+
+Example:
+
+```text
+Food Budget:
+Rp2,000,000
+
+Food Spending:
+Rp1,000,000
+```
+
+Result:
+
+```text
+Remaining:
+Rp1,000,000
+
+Usage:
+50%
+```
+
+Reimbursable expenses are excluded from normal personal budget usage.
+
+---
+
+# 12. Reminder Worker
+
+PinkLedger no longer depends on an in-process `node-cron` scheduler inside Express.
+
+The reminder worker is independent from the API server.
+
+Run one reminder scan manually with:
+
+```bash
+cd backend
+npm run reminders:run
+```
+
+The worker:
+
+```text
+starts
+↓
+loads enabled reminder preferences
+↓
+checks each user's timezone
+↓
+checks reminder time
+↓
+checks today's transactions
+↓
+resolves recipient email
+↓
+sends reminder when required
+↓
+updates last_sent_date
+↓
+exits
+```
+
+---
+
+# 13. Reminder Recipient Resolution
+
+Both the Send Test endpoint and scheduled worker use the same recipient-resolution logic.
+
+Priority:
+
+```text
+1. profiles.email
+
+2. Supabase Auth email
+```
+
+If the profile does not contain an email address, PinkLedger falls back to the user's Supabase Auth email.
+
+This prevents the situation where:
+
+```text
+Send Test works
+```
+
+but:
+
+```text
+Scheduled email fails
+```
+
+only because the profile row is incomplete.
+
+---
+
+# 14. Production Reminder Scheduling
+
+Use an external cron provider to execute:
+
+```bash
+npm run reminders:run
+```
+
+at regular intervals.
+
+Recommended frequency:
+
+```text
+Every 5 minutes
+```
+
+Cron expression:
+
+```text
+*/5 * * * *
+```
+
+The external scheduler starts the worker.
+
+The worker itself decides whether each user is due for a reminder based on:
+
+```text
+enabled
+reminder_time
+timezone
+last_sent_date
+transactions entered today
+```
+
+This architecture means the Express API server does not need to stay alive just to maintain a JavaScript timer.
+
+---
+
+# 15. Security Notes
+
+PinkLedger uses several layers of protection.
+
+## Authentication
+
+All private API routes require a valid Supabase bearer token.
+
+---
+
+## Row Level Security
+
+RLS protects user-owned tables.
+
+Users can access only their own data.
+
+---
+
+## Service Role Key
+
+The Supabase service role key is used only by trusted backend operations.
+
+It must never be exposed to the frontend.
+
+---
+
+## Database Validation
+
+Database triggers verify:
+
+- Transaction account ownership
+- Transaction category ownership
+- Budget category ownership
+- Reimbursement ownership
+- Reimbursement claim validity
+- Reimbursement receipt validity
+
+---
+
+## Express Security
+
+The backend uses:
+
+- Helmet
+- CORS
+- Rate limiting
+- JSON request size limits
+- Zod request validation
+
+---
+
+## Environment Files
+
+Never commit real:
+
+```text
+.env
+```
+
+files.
+
+Never commit:
+
+```text
+SUPABASE_SERVICE_ROLE_KEY
+SMTP_PASS
+```
+
+or other production secrets.
+
+---
+
+# 16. Currency Assumption
+
+PinkLedger currently assumes one primary currency per user.
+
+Account records contain a currency code, but the application does not currently perform foreign-exchange conversion.
+
+For accurate combined balances, use the same currency across accounts.
+
+Example:
+
+```text
+IDR + IDR
+```
+
+is valid for combined totals.
+
+Directly combining:
+
+```text
+IDR + USD
+```
+
+is not financially meaningful without an FX conversion layer.
+
+---
+
+# 17. Development Commands
+
+## Backend Development Server
 
 ```bash
 cd backend
 npm run dev
 ```
 
-Frontend:
+---
 
-```bash
-cd frontend
-npm run dev
-```
-
-Production frontend build:
-
-```bash
-cd frontend
-npm run build
-```
-
-Production backend:
+## Backend Production Server
 
 ```bash
 cd backend
 npm start
 ```
 
-## Important limitation
+---
 
-The source code is complete as an application starter, but it cannot contain your private Supabase keys or SMTP credentials. You must provide those values in local or deployment environment variables before authentication, database access, and email delivery can function.
+## Run Reminder Worker Manually
+
+```bash
+cd backend
+npm run reminders:run
+```
+
+---
+
+## Backend Syntax Check
+
+```bash
+cd backend
+npm run check
+```
+
+---
+
+## Frontend Development Server
+
+```bash
+cd frontend
+npm run dev
+```
+
+---
+
+## Frontend Production Build
+
+```bash
+cd frontend
+npm run build
+```
+
+---
+
+# 18. Recommended Database Setup Checklist
+
+For a new Supabase project:
+
+```text
+[ ] Run supabase/schema.sql
+
+[ ] Run 20260828_reimbursements.sql
+
+[ ] Run 20260828_multiple_reimbursements.sql
+
+[ ] Run 20260828_split_expenses.sql
+
+[ ] Verify transactions columns
+
+[ ] Verify reimbursement_claims table
+
+[ ] Enable Supabase Email authentication
+
+[ ] Copy Project URL
+
+[ ] Copy Anon Key
+
+[ ] Copy Service Role Key
+
+[ ] Configure backend environment variables
+
+[ ] Configure frontend environment variables
+```
+
+Do not start application testing until all four SQL files have completed successfully.
+
+---
+
+# 19. Current Database Tables
+
+After all migrations, the application uses these primary tables:
+
+```text
+profiles
+
+accounts
+
+categories
+
+transactions
+
+budgets
+
+reminder_preferences
+
+reimbursement_claims
+```
+
+---
+
+# 20. Production Improvements
+
+Potential future improvements include:
+
+- Database migration tracking
+- Automated Supabase CLI migrations
+- Database transaction/RPC handling for multi-step financial writes
+- Recurring transactions
+- Savings goals
+- Receipt attachments
+- Bank CSV import
+- Account reconciliation
+- Foreign exchange conversion
+- Advanced reports
+- PDF reports
+- Password reset
+- Automated testing
+- Continuous integration
+- Scheduled job monitoring
+- Centralized email queue
+
+---
+
+# Important Limitation
+
+The repository cannot contain real private credentials.
+
+Before authentication, database access, email delivery, or scheduled reminders can work, you must provide your own:
+
+```text
+Supabase credentials
+SMTP credentials
+Production environment configuration
+```
+
+Keep all secrets outside the frontend and outside version control.

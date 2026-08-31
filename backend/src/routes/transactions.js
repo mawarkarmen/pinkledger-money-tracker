@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { randomUUID } from 'node:crypto';
 
 import {
   reimbursementSchema,
@@ -11,143 +10,107 @@ import {
 const router = Router();
 
 
-async function createClaims({
-  supabase,
-  userId,
-  transactionId,
-  people,
-}) {
-  if (!people.length) {
-    return [];
+/*
+ * Convert expected database validation errors into useful HTTP responses.
+ * Unexpected database errors remain 500 errors and are handled by the
+ * application's central error handler.
+ */
+function throwRpcError(error) {
+  const message =
+    error?.message ||
+    'Database operation failed.';
+
+
+  const httpError =
+    new Error(message);
+
+
+  if (
+    message ===
+      'Transaction not found.' ||
+    message ===
+      'Reimbursement claim not found.'
+  ) {
+    httpError.status = 404;
+
+    throw httpError;
   }
 
 
-  const rows =
-    people.map(
-      (person) => ({
-        user_id:
-          userId,
+  if (
+    message.includes(
+      'already reimbursed',
+    ) ||
+    message.includes(
+      'already been paid',
+    )
+  ) {
+    httpError.status = 409;
 
-        transaction_id:
-          transactionId,
-
-        person_name:
-          person.person_name
-            .trim(),
-
-        amount:
-          Number(
-            person.amount,
-          ),
-
-        status:
-          'pending',
-
-        reimbursed_at:
-          null,
-      }),
-    );
-
-
-  const {
-    data,
-    error,
-  } =
-    await supabase
-      .from(
-        'reimbursement_claims',
-      )
-      .insert(rows)
-      .select('*');
-
-
-  if (error) {
-    throw error;
+    throw httpError;
   }
 
 
-  return data || [];
-}
+  const validationMessages = [
+    'Authentication required.',
+    'Invalid transaction type.',
+    'Transaction amount must be greater than zero.',
+    'Only expenses can be reimbursable.',
+    'Reimbursement people are only allowed for reimbursable expenses.',
+    'Reimbursement people must be an array.',
+    'Add at least one person who will reimburse this expense.',
+    'A maximum of 20 reimbursement people is allowed.',
+    'Each reimbursement person must have a valid name.',
+    'Each reimbursement amount must be greater than zero.',
+    'The reimbursement amounts must equal the reimbursable portion.',
+    'Total amount must be greater than zero.',
+    'Personal amount must be greater than zero.',
+    'Your portion must be smaller than the total payment.',
+    'Unable to create the reimbursable split transaction.',
+    'Reimbursement receipts cannot be edited directly.',
+    'Split expense components cannot be edited individually. Delete the split and create it again.',
+    'This expense cannot be edited because one or more people have already reimbursed it.',
+    'The reimbursable expense was not found.',
+    'Reimbursement date cannot be earlier than the expense date.',
+    'Destination account was not found.',
+    'Category does not belong to the user.',
+    'Source account does not belong to the user.',
+    'Destination account does not belong to the user.',
+    'Budget category must be an expense category owned by the user.',
+    'Reimbursement claim must belong to a reimbursable expense.',
+    'Total reimbursement claims exceed the reimbursable expense amount.',
+    'A reimbursement receipt must be an income-side account movement.',
+    'Reimbursement receipt does not match its original expense.',
+    'Reimbursement receipt amount must match the reimbursement claim amount.',
+    'Reimbursement receipt must reference a reimbursement claim.',
+    'Transaction date cannot be earlier than source account opening date.',
+    'Transaction date cannot be earlier than destination account opening date.',
+    'Source account is archived.',
+    'Destination account is archived.',
+    'Transactions belonging to an archived source account cannot be deleted.',
+    'Transactions belonging to an archived destination account cannot be deleted.',
+  ];
 
 
-async function updateExpenseReimbursementStatus({
-  supabase,
-  transactionId,
-}) {
-  const {
-    data:
-      claims,
-    error,
-  } =
-    await supabase
-      .from(
-        'reimbursement_claims',
-      )
-      .select(`
-        status,
-        reimbursed_at
-      `)
-      .eq(
-        'transaction_id',
-        transactionId,
-      );
+  if (
+    validationMessages.some(
+      (knownMessage) =>
+        message.includes(
+          knownMessage,
+        ),
+    )
+  ) {
+    httpError.status =
+      message ===
+        'Authentication required.'
+        ? 401
+        : 400;
 
-
-  if (error) {
-    throw error;
+    throw httpError;
   }
 
 
-  const allReimbursed =
-    claims?.length > 0 &&
-    claims.every(
-      (claim) =>
-        claim.status ===
-        'reimbursed',
-    );
-
-
-  const reimbursedDates =
-    (claims || [])
-      .map(
-        (claim) =>
-          claim.reimbursed_at,
-      )
-      .filter(Boolean)
-      .sort();
-
-
-  const {
-    error:
-      updateError,
-  } =
-    await supabase
-      .from(
-        'transactions',
-      )
-      .update({
-        reimbursement_status:
-          allReimbursed
-            ? 'reimbursed'
-            : 'pending',
-
-        reimbursed_at:
-          allReimbursed
-            ? reimbursedDates[
-                reimbursedDates.length -
-                  1
-              ] || null
-            : null,
-      })
-      .eq(
-        'id',
-        transactionId,
-      );
-
-
-  if (updateError) {
-    throw updateError;
-  }
+  throw error;
 }
 
 
@@ -168,47 +131,108 @@ router.get(
       } = req.query;
 
 
+      /*
+       * Pagination is opt-in so the existing frontend remains
+       * backward compatible.
+       *
+       * Examples:
+       *
+       * /api/transactions?page=1&page_size=50
+       * /api/transactions?month=2026-08&page=2&page_size=25
+       *
+       * Response body remains an ARRAY.
+       * Pagination metadata is returned in response headers.
+       */
+      const paginationRequested =
+        req.query.page !== undefined ||
+        req.query.page_size !== undefined;
+
+
+      const parsedPage =
+        Number.parseInt(
+          String(
+            req.query.page || '1',
+          ),
+          10,
+        );
+
+
+      const parsedPageSize =
+        Number.parseInt(
+          String(
+            req.query.page_size || '50',
+          ),
+          10,
+        );
+
+
+      const page =
+        Number.isFinite(parsedPage) &&
+        parsedPage > 0
+          ? parsedPage
+          : 1;
+
+
+      const pageSize =
+        Number.isFinite(parsedPageSize) &&
+        parsedPageSize > 0
+          ? Math.min(
+              parsedPageSize,
+              100,
+            )
+          : 50;
+
+
       let query =
         req.supabase
           .from(
             'transactions',
           )
-          .select(`
-            *,
-            category:categories(
-              id,
-              name,
-              type,
-              icon
-            ),
-            source_account:accounts!transactions_source_account_id_fkey(
-              id,
-              name
-            ),
-            destination_account:accounts!transactions_destination_account_id_fkey(
-              id,
-              name
-            ),
-            reimbursements:reimbursement_claims!reimbursement_claims_transaction_id_fkey(
-              id,
-              person_name,
-              amount,
-              status,
-              reimbursed_at
-            )
-          `)
+          .select(
+            `
+              *,
+
+              category:categories(
+                id,
+                name,
+                type,
+                icon
+              ),
+
+              source_account:accounts!transactions_source_account_id_fkey(
+                id,
+                name
+              ),
+
+              destination_account:accounts!transactions_destination_account_id_fkey(
+                id,
+                name
+              ),
+
+              reimbursements:reimbursement_claims!reimbursement_claims_transaction_id_fkey(
+                id,
+                person_name,
+                amount,
+                status,
+                reimbursed_at
+              )
+            `,
+            paginationRequested
+              ? {
+                  count: 'exact',
+                }
+              : undefined,
+          )
           .order(
             'date',
             {
-              ascending:
-                false,
+              ascending: false,
             },
           )
           .order(
             'created_at',
             {
-              ascending:
-                false,
+              ascending: false,
             },
           );
 
@@ -241,7 +265,10 @@ router.get(
             ),
           )
             .toISOString()
-            .slice(0, 10);
+            .slice(
+              0,
+              10,
+            );
 
 
         query =
@@ -267,6 +294,7 @@ router.get(
             'is',
             null,
           );
+
       } else if (
         type ===
         'income'
@@ -281,6 +309,7 @@ router.get(
               'reimbursement_claim_id',
               null,
             );
+
       } else if (
         type
       ) {
@@ -325,10 +354,34 @@ router.get(
       }
 
 
+      if (
+        paginationRequested
+      ) {
+        const from =
+          (page - 1) *
+          pageSize;
+
+
+        const to =
+          from +
+          pageSize -
+          1;
+
+
+        query =
+          query.range(
+            from,
+            to,
+          );
+      }
+
+
       const {
         data,
         error,
-      } = await query;
+        count,
+      } =
+        await query;
 
 
       if (error) {
@@ -336,9 +389,42 @@ router.get(
       }
 
 
-      res.json(
+      if (
+        paginationRequested
+      ) {
+        const total =
+          count || 0;
+
+
+        const totalPages =
+          total > 0
+            ? Math.ceil(
+                total /
+                pageSize,
+              )
+            : 0;
+
+
+        res.set({
+          'X-Page':
+            String(page),
+
+          'X-Page-Size':
+            String(pageSize),
+
+          'X-Total-Count':
+            String(total),
+
+          'X-Total-Pages':
+            String(totalPages),
+        });
+      }
+
+
+      return res.json(
         data || [],
       );
+
     } catch (error) {
       next(error);
     }
@@ -346,6 +432,14 @@ router.get(
 );
 
 
+/*
+ * ==========================================================
+ * CREATE TRANSACTION
+ * ==========================================================
+ *
+ * The transaction row and all reimbursement claims are now
+ * created inside one PostgreSQL RPC transaction.
+ */
 router.post(
   '/',
   async (
@@ -353,10 +447,6 @@ router.post(
     res,
     next,
   ) => {
-    let transactionId =
-      null;
-
-
     try {
       const input =
         transactionSchema
@@ -366,161 +456,44 @@ router.post(
 
 
       const {
-        reimbursement_people,
-        ...transactionInput
-      } = input;
-
-
-      const isReimbursable =
-        input.type ===
-          'expense' &&
-        input.is_reimbursable ===
-          true;
-
-
-      const payload = {
-        user_id:
-          req.user.id,
-
-        type:
-          transactionInput.type,
-
-        date:
-          transactionInput.date,
-
-        description:
-          transactionInput.description,
-
-        amount:
-          transactionInput.amount,
-
-        category_id:
-          transactionInput.type ===
-            'transfer'
-            ? null
-            : transactionInput.category_id ||
-              null,
-
-        source_account_id:
-          transactionInput.type ===
-            'income'
-            ? null
-            : transactionInput.source_account_id ||
-              null,
-
-        destination_account_id:
-          transactionInput.type ===
-            'expense'
-            ? null
-            : transactionInput.destination_account_id ||
-              null,
-
-        notes:
-          transactionInput.notes ||
-          null,
-
-        is_reimbursable:
-          isReimbursable,
-
-        reimbursement_status:
-          isReimbursable
-            ? 'pending'
-            : 'none',
-
-        reimbursed_by:
-          null,
-
-        reimbursed_at:
-          null,
-
-        reimburses_transaction_id:
-          null,
-
-        reimbursement_claim_id:
-          null,
-
-        transaction_group_id:
-          null,
-      };
-
-
-      const {
-        data:
-          transaction,
+        data,
         error,
       } =
         await req.supabase
-          .from(
-            'transactions',
-          )
-          .insert(payload)
-          .select('*')
-          .single();
+          .rpc(
+            'create_transaction_atomic',
+            {
+              p_payload:
+                input,
+            },
+          );
 
 
       if (error) {
-        throw error;
-      }
-
-
-      transactionId =
-        transaction.id;
-
-
-      let claims = [];
-
-
-      if (
-        isReimbursable
-      ) {
-        claims =
-          await createClaims({
-            supabase:
-              req.supabase,
-
-            userId:
-              req.user.id,
-
-            transactionId:
-              transaction.id,
-
-            people:
-              reimbursement_people,
-          });
+        throwRpcError(
+          error,
+        );
       }
 
 
       return res
         .status(201)
-        .json({
-          ...transaction,
-
-          reimbursements:
-            claims,
-        });
+        .json(data);
     } catch (error) {
-
-      if (
-        transactionId
-      ) {
-        await req.supabase
-          .from(
-            'transactions',
-          )
-          .delete()
-          .eq(
-            'id',
-            transactionId,
-          );
-      }
-
-
       next(error);
     }
   },
 );
 
 
+/*
+ * ==========================================================
+ * CREATE SPLIT EXPENSE
+ * ==========================================================
+ *
+ * Both expense rows and all reimbursement claims are created
+ * inside one PostgreSQL transaction.
+ */
 router.post(
   '/split',
   async (
@@ -528,10 +501,6 @@ router.post(
     res,
     next,
   ) => {
-    let groupId =
-      null;
-
-
     try {
       const input =
         splitExpenseSchema
@@ -540,210 +509,45 @@ router.post(
           );
 
 
-      const reimbursableAmount =
-        Number(
-          (
-            input.total_amount -
-            input.personal_amount
-          ).toFixed(2),
-        );
-
-
-      groupId =
-        randomUUID();
-
-
-      const rows = [
-        {
-          user_id:
-            req.user.id,
-
-          type:
-            'expense',
-
-          date:
-            input.date,
-
-          description:
-            input.description,
-
-          amount:
-            input.personal_amount,
-
-          category_id:
-            input.category_id,
-
-          source_account_id:
-            input.source_account_id,
-
-          destination_account_id:
-            null,
-
-          notes:
-            input.notes ||
-            null,
-
-          is_reimbursable:
-            false,
-
-          reimbursement_status:
-            'none',
-
-          reimbursed_by:
-            null,
-
-          reimbursed_at:
-            null,
-
-          reimburses_transaction_id:
-            null,
-
-          reimbursement_claim_id:
-            null,
-
-          transaction_group_id:
-            groupId,
-        },
-
-        {
-          user_id:
-            req.user.id,
-
-          type:
-            'expense',
-
-          date:
-            input.date,
-
-          description:
-            input.description,
-
-          amount:
-            reimbursableAmount,
-
-          category_id:
-            input.category_id,
-
-          source_account_id:
-            input.source_account_id,
-
-          destination_account_id:
-            null,
-
-          notes:
-            input.notes ||
-            null,
-
-          is_reimbursable:
-            true,
-
-          reimbursement_status:
-            'pending',
-
-          reimbursed_by:
-            null,
-
-          reimbursed_at:
-            null,
-
-          reimburses_transaction_id:
-            null,
-
-          reimbursement_claim_id:
-            null,
-
-          transaction_group_id:
-            groupId,
-        },
-      ];
-
-
       const {
-        data:
-          transactions,
+        data,
         error,
       } =
         await req.supabase
-          .from(
-            'transactions',
-          )
-          .insert(rows)
-          .select('*');
+          .rpc(
+            'create_split_expense_atomic',
+            {
+              p_payload:
+                input,
+            },
+          );
 
 
       if (error) {
-        throw error;
-      }
-
-
-      const reimbursableTransaction =
-        transactions.find(
-          (transaction) =>
-            transaction
-              .is_reimbursable,
+        throwRpcError(
+          error,
         );
-
-
-      const claims =
-        await createClaims({
-          supabase:
-            req.supabase,
-
-          userId:
-            req.user.id,
-
-          transactionId:
-            reimbursableTransaction.id,
-
-          people:
-            input
-              .reimbursement_people,
-        });
+      }
 
 
       return res
         .status(201)
-        .json({
-          group_id:
-            groupId,
-
-          total_amount:
-            input.total_amount,
-
-          personal_amount:
-            input.personal_amount,
-
-          reimbursable_amount:
-            reimbursableAmount,
-
-          transactions,
-
-          reimbursements:
-            claims,
-        });
+        .json(data);
     } catch (error) {
-
-      if (
-        groupId
-      ) {
-        await req.supabase
-          .from(
-            'transactions',
-          )
-          .delete()
-          .eq(
-            'transaction_group_id',
-            groupId,
-          );
-      }
-
-
       next(error);
     }
   },
 );
 
 
+/*
+ * ==========================================================
+ * UPDATE TRANSACTION
+ * ==========================================================
+ *
+ * Updating the transaction, deleting old pending claims,
+ * and creating replacement claims now happen atomically.
+ */
 router.put(
   '/:id',
   async (
@@ -752,114 +556,6 @@ router.put(
     next,
   ) => {
     try {
-      const {
-        data:
-          current,
-        error:
-          currentError,
-      } =
-        await req.supabase
-          .from(
-            'transactions',
-          )
-          .select(`
-            id,
-            type,
-            reimbursement_status,
-            reimbursement_claim_id,
-            transaction_group_id
-          `)
-          .eq(
-            'id',
-            req.params.id,
-          )
-          .maybeSingle();
-
-
-      if (
-        currentError
-      ) {
-        throw currentError;
-      }
-
-
-      if (!current) {
-        return res
-          .status(404)
-          .json({
-            error:
-              'Transaction not found.',
-          });
-      }
-
-
-      if (
-        current
-          .reimbursement_claim_id
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'Reimbursement receipts cannot be edited directly.',
-          });
-      }
-
-
-      if (
-        current
-          .transaction_group_id
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'Split expense components cannot be edited individually. Delete the split and create it again.',
-          });
-      }
-
-
-      const {
-        data:
-          currentClaims,
-        error:
-          claimError,
-      } =
-        await req.supabase
-          .from(
-            'reimbursement_claims',
-          )
-          .select(`
-            id,
-            status
-          `)
-          .eq(
-            'transaction_id',
-            current.id,
-          );
-
-
-      if (claimError) {
-        throw claimError;
-      }
-
-
-      if (
-        currentClaims?.some(
-          (claim) =>
-            claim.status ===
-            'reimbursed',
-        )
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'This expense cannot be edited because one or more people have already reimbursed it.',
-          });
-      }
-
-
       const input =
         transactionSchema
           .parse(
@@ -868,156 +564,32 @@ router.put(
 
 
       const {
-        reimbursement_people,
-        ...transactionInput
-      } = input;
-
-
-      const isReimbursable =
-        transactionInput.type ===
-          'expense' &&
-        transactionInput.is_reimbursable ===
-          true;
-
-
-      const payload = {
-        type:
-          transactionInput.type,
-
-        date:
-          transactionInput.date,
-
-        description:
-          transactionInput.description,
-
-        amount:
-          transactionInput.amount,
-
-        category_id:
-          transactionInput.type ===
-            'transfer'
-            ? null
-            : transactionInput.category_id ||
-              null,
-
-        source_account_id:
-          transactionInput.type ===
-            'income'
-            ? null
-            : transactionInput.source_account_id ||
-              null,
-
-        destination_account_id:
-          transactionInput.type ===
-            'expense'
-            ? null
-            : transactionInput.destination_account_id ||
-              null,
-
-        notes:
-          transactionInput.notes ||
-          null,
-
-        is_reimbursable:
-          isReimbursable,
-
-        reimbursement_status:
-          isReimbursable
-            ? 'pending'
-            : 'none',
-
-        reimbursed_by:
-          null,
-
-        reimbursed_at:
-          null,
-
-        reimburses_transaction_id:
-          null,
-
-        reimbursement_claim_id:
-          null,
-      };
-
-
-      const {
-        data:
-          updated,
-        error:
-          updateError,
+        data,
+        error,
       } =
         await req.supabase
-          .from(
-            'transactions',
-          )
-          .update(payload)
-          .eq(
-            'id',
-            current.id,
-          )
-          .select('*')
-          .single();
+          .rpc(
+            'update_transaction_atomic',
+            {
+              p_transaction_id:
+                req.params.id,
 
-
-      if (
-        updateError
-      ) {
-        throw updateError;
-      }
-
-
-      const {
-        error:
-          deleteClaimsError,
-      } =
-        await req.supabase
-          .from(
-            'reimbursement_claims',
-          )
-          .delete()
-          .eq(
-            'transaction_id',
-            current.id,
+              p_payload:
+                input,
+            },
           );
 
 
-      if (
-        deleteClaimsError
-      ) {
-        throw deleteClaimsError;
+      if (error) {
+        throwRpcError(
+          error,
+        );
       }
 
 
-      let claims = [];
-
-
-      if (
-        isReimbursable
-      ) {
-        claims =
-          await createClaims({
-            supabase:
-              req.supabase,
-
-            userId:
-              req.user.id,
-
-            transactionId:
-              current.id,
-
-            people:
-              reimbursement_people,
-          });
-      }
-
-
-      return res.json({
-        ...updated,
-
-        reimbursements:
-          claims,
-      });
-
+      return res.json(
+        data,
+      );
     } catch (error) {
       next(error);
     }
@@ -1025,6 +597,20 @@ router.put(
 );
 
 
+/*
+ * ==========================================================
+ * RECORD REIMBURSEMENT
+ * ==========================================================
+ *
+ * These three writes are now one database transaction:
+ *
+ * 1. Create reimbursement receipt transaction.
+ * 2. Mark the claim reimbursed.
+ * 3. Recalculate the parent expense reimbursement status.
+ *
+ * The database also locks the parent expense and claim so two
+ * concurrent requests cannot reimburse the same claim twice.
+ */
 router.post(
   '/:id/reimburse/:claimId',
   async (
@@ -1032,10 +618,6 @@ router.post(
     res,
     next,
   ) => {
-    let receiptId =
-      null;
-
-
     try {
       const input =
         reimbursementSchema
@@ -1045,296 +627,35 @@ router.post(
 
 
       const {
-        data:
-          original,
-        error:
-          originalError,
+        data,
+        error,
       } =
         await req.supabase
-          .from(
-            'transactions',
-          )
-          .select(`
-            id,
-            type,
-            date,
-            description,
-            amount,
-            source_account_id,
-            is_reimbursable
-          `)
-          .eq(
-            'id',
-            req.params.id,
-          )
-          .maybeSingle();
+          .rpc(
+            'reimburse_claim_atomic',
+            {
+              p_transaction_id:
+                req.params.id,
 
+              p_claim_id:
+                req.params.claimId,
 
-      if (
-        originalError
-      ) {
-        throw originalError;
-      }
-
-
-      if (
-        !original ||
-        original.type !==
-          'expense' ||
-        !original
-          .is_reimbursable
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'The reimbursable expense was not found.',
-          });
-      }
-
-
-      const {
-        data:
-          claim,
-        error:
-          claimError,
-      } =
-        await req.supabase
-          .from(
-            'reimbursement_claims',
-          )
-          .select('*')
-          .eq(
-            'id',
-            req.params.claimId,
-          )
-          .eq(
-            'transaction_id',
-            original.id,
-          )
-          .maybeSingle();
-
-
-      if (
-        claimError
-      ) {
-        throw claimError;
-      }
-
-
-      if (!claim) {
-        return res
-          .status(404)
-          .json({
-            error:
-              'Reimbursement claim not found.',
-          });
-      }
-
-
-      if (
-        claim.status ===
-        'reimbursed'
-      ) {
-        return res
-          .status(409)
-          .json({
-            error:
-              `${claim.person_name} has already reimbursed this amount.`,
-          });
-      }
-
-
-      if (
-        input.date <
-        original.date
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'Reimbursement date cannot be earlier than the expense date.',
-          });
-      }
-
-
-      const {
-        data:
-          destinationAccount,
-        error:
-          accountError,
-      } =
-        await req.supabase
-          .from(
-            'accounts',
-          )
-          .select(`
-            id,
-            name
-          `)
-          .eq(
-            'id',
-            input
-              .destination_account_id,
-          )
-          .maybeSingle();
-
-
-      if (
-        accountError
-      ) {
-        throw accountError;
-      }
-
-
-      if (
-        !destinationAccount
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'Destination account was not found.',
-          });
-      }
-
-
-      const {
-        data:
-          receipt,
-        error:
-          receiptError,
-      } =
-        await req.supabase
-          .from(
-            'transactions',
-          )
-          .insert({
-            user_id:
-              req.user.id,
-
-            type:
-              'income',
-
-            date:
-              input.date,
-
-            description:
-              `Reimbursement from ${claim.person_name}: ${original.description}`,
-
-            amount:
-              claim.amount,
-
-            category_id:
-              null,
-
-            source_account_id:
-              null,
-
-            destination_account_id:
-              input
-                .destination_account_id,
-
-            notes:
-              `Repayment from ${claim.person_name}`,
-
-            is_reimbursable:
-              false,
-
-            reimbursement_status:
-              'none',
-
-            reimbursed_by:
-              null,
-
-            reimbursed_at:
-              null,
-
-            reimburses_transaction_id:
-              original.id,
-
-            reimbursement_claim_id:
-              claim.id,
-
-            transaction_group_id:
-              null,
-          })
-          .select('*')
-          .single();
-
-
-      if (
-        receiptError
-      ) {
-        throw receiptError;
-      }
-
-
-      receiptId =
-        receipt.id;
-
-
-      const {
-        error:
-          claimUpdateError,
-      } =
-        await req.supabase
-          .from(
-            'reimbursement_claims',
-          )
-          .update({
-            status:
-              'reimbursed',
-
-            reimbursed_at:
-              input.date,
-          })
-          .eq(
-            'id',
-            claim.id,
+              p_payload:
+                input,
+            },
           );
 
 
-      if (
-        claimUpdateError
-      ) {
-        await req.supabase
-          .from(
-            'transactions',
-          )
-          .delete()
-          .eq(
-            'id',
-            receiptId,
-          );
-
-
-        throw claimUpdateError;
+      if (error) {
+        throwRpcError(
+          error,
+        );
       }
 
 
-      await updateExpenseReimbursementStatus({
-        supabase:
-          req.supabase,
-
-        transactionId:
-          original.id,
-      });
-
-
-      return res.json({
-        ok: true,
-
-        person:
-          claim.person_name,
-
-        amount:
-          claim.amount,
-
-        reimbursement:
-          receipt,
-      });
-
+      return res.json(
+        data,
+      );
     } catch (error) {
       next(error);
     }
@@ -1404,6 +725,11 @@ router.delete(
       }
 
 
+      /*
+       * A single SQL DELETE statement removes all components
+       * of a split expense. A single statement is already
+       * atomic in PostgreSQL.
+       */
       if (
         transaction
           .transaction_group_id
@@ -1434,6 +760,11 @@ router.delete(
       }
 
 
+      /*
+       * Deleting an original reimbursable expense is also one
+       * SQL statement. Existing foreign keys cascade to its
+       * reimbursement claims and reimbursement receipt rows.
+       */
       const {
         error,
       } =

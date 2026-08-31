@@ -1,25 +1,56 @@
-import { supabase } from './supabase';
+import {
+  supabase,
+} from './supabase';
+
 
 const API_URL =
   import.meta.env.VITE_API_URL ||
   'http://localhost:4000/api';
 
-export async function api(
+
+function getBrowserTimeZone() {
+  try {
+    return (
+      Intl.DateTimeFormat()
+        .resolvedOptions()
+        .timeZone ||
+      'UTC'
+    );
+
+  } catch {
+    return 'UTC';
+  }
+}
+
+
+async function request(
   path,
   options = {},
 ) {
-  const { data, error: sessionError } =
-    await supabase.auth.getSession();
+  const {
+    data,
+    error:
+      sessionError,
+  } =
+    await supabase
+      .auth
+      .getSession();
 
-  if (sessionError) {
+
+  if (
+    sessionError
+  ) {
     throw new Error(
       sessionError.message ||
         'Unable to read the authentication session.',
     );
   }
 
+
   const token =
-    data.session?.access_token;
+    data.session
+      ?.access_token;
+
 
   if (!token) {
     throw new Error(
@@ -27,54 +58,78 @@ export async function api(
     );
   }
 
+
+  const timeZone =
+    getBrowserTimeZone();
+
+
   let response;
 
+
   try {
-    response = await fetch(
-      `${API_URL}${path}`,
-      {
-        ...options,
+    response =
+      await fetch(
+        `${API_URL}${path}`,
+        {
+          ...options,
 
-        headers: {
-          'Content-Type':
-            'application/json',
+          headers: {
+            'Content-Type':
+              'application/json',
 
-          Authorization:
-            `Bearer ${token}`,
+            Authorization:
+              `Bearer ${token}`,
 
-          ...(options.headers || {}),
+            'X-Timezone':
+              timeZone,
+
+            ...(options.headers || {}),
+          },
         },
-      },
-    );
-  } catch (error) {
+      );
+
+  } catch {
     throw new Error(
       `Unable to connect to the PinkLedger backend at ${API_URL}. Make sure the backend is running.`,
     );
   }
 
+
   const rawText =
     await response.text();
 
-  let payload = null;
+
+  let payload =
+    null;
+
 
   if (rawText) {
     try {
       payload =
-        JSON.parse(rawText);
+        JSON.parse(
+          rawText,
+        );
+
     } catch {
-      payload = null;
+      payload =
+        null;
     }
   }
 
-  if (!response.ok) {
+
+  if (
+    !response.ok
+  ) {
     let message =
       payload?.error ||
       payload?.message ||
       rawText ||
       `Request failed with status ${response.status}`;
 
+
     if (
-      response.status === 429 &&
+      response.status ===
+        429 &&
       !payload?.error &&
       !payload?.message
     ) {
@@ -82,21 +137,112 @@ export async function api(
         'Too many requests were sent to the backend. Please wait briefly and try again.';
     }
 
+
     const error =
-      new Error(message);
+      new Error(
+        message,
+      );
+
 
     error.status =
       response.status;
 
+
     throw error;
   }
 
-  if (
-    response.status === 204 ||
-    !rawText
-  ) {
-    return null;
-  }
 
-  return payload;
+  /*
+   * Read optional transaction
+   * pagination headers.
+   */
+  const pagination = {
+    page:
+      Number(
+        response.headers.get(
+          'X-Page',
+        ),
+      ) ||
+      null,
+
+    pageSize:
+      Number(
+        response.headers.get(
+          'X-Page-Size',
+        ),
+      ) ||
+      null,
+
+    totalCount:
+      Number(
+        response.headers.get(
+          'X-Total-Count',
+        ),
+      ) ||
+      null,
+
+    totalPages:
+      Number(
+        response.headers.get(
+          'X-Total-Pages',
+        ),
+      ) ||
+      null,
+  };
+
+
+  return {
+    data:
+      response.status ===
+        204 ||
+      !rawText
+        ? null
+        : payload,
+
+    pagination,
+  };
+}
+
+
+/*
+ * Existing helper.
+ *
+ * Existing PinkLedger pages continue
+ * working without modification.
+ */
+export async function api(
+  path,
+  options = {},
+) {
+  const result =
+    await request(
+      path,
+      options,
+    );
+
+
+  return result.data;
+}
+
+
+/*
+ * Pagination-aware helper.
+ *
+ * Example:
+ *
+ * const {
+ *   data,
+ *   pagination,
+ * } = await apiWithMeta(
+ *   '/transactions?page=1&page_size=50'
+ * );
+ */
+export async function apiWithMeta(
+  path,
+  options = {},
+) {
+  return request(
+    path,
+    options,
+  );
 }
